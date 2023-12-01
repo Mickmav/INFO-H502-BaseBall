@@ -31,15 +31,30 @@ if (NOT glfw3_FOUND)
 endif()
 
 
+find_package(Bullet)
+if(NOT Bullet_FOUND)
+    option(BUILD_BULLET2_DEMOS OFF)
+    option(BUILD_CPU_DEMOS OFF)
+    option(BUILD_EXTRAS OFF)
+    option(BUILD_OPENGL3_DEMOS OFF)
+    option(BUILD_UNIT_TESTS OFF)
+    add_subdirectory(3rdParty/bullet)
+    include_directories(3rdParty/bullet/src)
+else()
+    include_directories(${BULLET_INCLUDE_DIR}) 
+endif()
+
 
 include_directories(3rdParty/glad/include/
                     3rdParty/glm/
-                    3rdParty/stb/)
+                    3rdParty/stb/
+                    3rdParty/bullet/)
 
 
 
 
 set(SOURCES_EX_08 "ex08.cpp" "camera.h" "shader.h" "object.h")
+set(SOURCES_Main "main.cpp" "camera.h" "shader.h" "object.h")
 
 
 #These commands are there to specify the path to the folder containing the object and textures files as macro
@@ -49,3 +64,7 @@ add_compile_definitions(PATH_TO_TEXTURE="${CMAKE_CURRENT_SOURCE_DIR}/textures")
 
 add_executable(${PROJECT_NAME}_ex08 ${SOURCES_EX_08})
 target_link_libraries(${PROJECT_NAME}_ex08 PUBLIC OpenGL::GL glfw glad)
+
+
+add_executable(${PROJECT_NAME}_Main ${SOURCES_Main})
+target_link_libraries(${PROJECT_NAME}_Main PUBLIC glad OpenGL::GL glfw LinearMath  BulletDynamics BulletCollision)
