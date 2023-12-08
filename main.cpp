@@ -21,6 +21,9 @@
 
 const int width = 1000;
 const int height = 1000;
+bool giveImpulseB = false;
+bool giveImpulseN = false;
+
 
 
 GLuint compileShader(std::string shaderCode, GLenum shaderType);
@@ -161,6 +164,10 @@ int main(int argc, char* argv[])
 	Object cube(path);
 	cube.makeObject(shader);
 
+	char pathBatter[] = PATH_TO_OBJECTS "/basball.obj";
+	Object cube2(pathBatter);
+	cube2.makeObject(shader);
+
 	char pathPlane[] = PATH_TO_OBJECTS "/plane.obj";
 	Object plane(pathPlane);
 	plane.makeObject(shader);
@@ -197,7 +204,7 @@ int main(int argc, char* argv[])
 	//Finally create the world
 	btDiscreteDynamicsWorld* dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, overlappingPairCache, solver, collisionConfiguration);
 	//add gravity
-	dynamicsWorld->setGravity(btVector3(0, -10, 0));
+	dynamicsWorld->setGravity(btVector3(0, -1, 0));
 
 
 	//2. Create the collisions shapes
@@ -220,8 +227,6 @@ int main(int argc, char* argv[])
 		//already init the model for ground 
 		
 
-		
-
 		btScalar mass(0.);
 
 		//rigidbody is dynamic if and only if mass is non zero, otherwise static
@@ -234,6 +239,7 @@ int main(int argc, char* argv[])
 		//using motionstate is optional, it provides interpolation capabilities, and only synchronizes 'active' objects
 		btDefaultMotionState* myMotionState = new btDefaultMotionState(groundTransform);
 		btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, groundShape, localInertia);
+		rbInfo.m_restitution = 1.0f;
 		btRigidBody* body = new btRigidBody(rbInfo);
 
 		//add the body to the dynamics world
@@ -252,56 +258,112 @@ int main(int argc, char* argv[])
 		btTransform startTransform;
 		startTransform.setIdentity();
 
-		btScalar mass(1.f);
+		btScalar mass(1);
 
 		//rigidbody is dynamic if and only if mass is non zero, otherwise static
 		bool isDynamic = (mass != 0.f);
 
-		btVector3 localInertia(0, 0, 0);
+		btVector3 localInertia(1, 1, 1);
 		if (isDynamic)
 			colShape->calculateLocalInertia(mass, localInertia);
 
-		startTransform.setOrigin(btVector3(2, 10, 0));
+		startTransform.setOrigin(btVector3(-4, 4.75, -3.5)); // -4, 13, 3.5 // -14 13 -7.5
 
 		//using motionstate is recommended, it provides interpolation capabilities, and only synchronizes 'active' objects
 		btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
 		btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
+		rbInfo.m_friction = 1.f;
+		rbInfo.m_restitution = 1.0f;
 		bodySphere = new btRigidBody(rbInfo);
 
 		dynamicsWorld->addRigidBody(bodySphere);
 	}
-	//3.b Another one for another sphere
+	//3.b Another one for the batter
 	btRigidBody* bodySphere2;
 	{
-		//create a dynamic rigidbody
 
-		//btCollisionShape* colShape = new btBoxShape(btVector3(1,1,1));
-		btCollisionShape* colShape = new btSphereShape(btScalar(1.));
+		//-(void)createShapeWithVertices:(Vertex*)vertices count : (unsigned int)vertexCount isConvex : (BOOL)convex
+		//{
+		//	_shape = new btConvexHullShape();
+		//		for (int i = 0; i < vertexCount; i++)
+		//		{
+		//			Vertex v = vertices[i];
+		//			btVector3 btv = btVector3(v.Position[0], v.Position[1], v.Position[2]);
+		//			((btConvexHullShape*)_shape)->addPoint(btv);
+		//		}
+		//}
+
+		btCollisionShape* colShape = new btBoxShape(btVector3(btScalar(5.), btScalar(0.1), btScalar(3.)));
 		collisionShapes.push_back(colShape);
 
-		/// Create Dynamic Objects
+		
+		btScalar mass(50000);
+
+		// create the initial transform
 		btTransform startTransform;
 		startTransform.setIdentity();
+		startTransform.setOrigin(btVector3(0, 3, 0));// 10 1 10
+		startTransform.setRotation(btQuaternion(0, 0, 0, mass));
 
-		btScalar mass(1.f);
 
-		//rigidbody is dynamic if and only if mass is non zero, otherwise static
 		bool isDynamic = (mass != 0.f);
 
-		btVector3 localInertia(2, 2, 0);
+		// calculate the local inertia
+		btVector3 localInertia(100, 0, 100);
+		// objects of infinite mass can't
+		// move or rotate
 		if (isDynamic)
 			colShape->calculateLocalInertia(mass, localInertia);
 
-		startTransform.setOrigin(btVector3(1, 20, 0));
+		//btDefaultMotionState* myMotionState = new btDefaultMotionState(btTransform(btQuaternion(0, 0, 0, mass), btVector3(0, 3, 0)));
 
-		//using motionstate is recommended, it provides interpolation capabilities, and only synchronizes 'active' objects
+		// ? create the motion state from the initial transform
 		btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
+		
+		// create the rigid body construction
+		// info using the mass, motion state and shape
 		btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
+		rbInfo.m_restitution = 1.0f;
+		
+		// create the rigid body
 		bodySphere2 = new btRigidBody(rbInfo);
 
 		dynamicsWorld->addRigidBody(bodySphere2);
 	}
-	
+
+	//btRigidBody* bodySphere3;
+	//{
+		//create a dynamic rigidbody
+
+		//btCollisionShape* colShape = new btBoxShape(btVector3(btScalar(0.1), btScalar(3), btScalar(0.1)));
+
+		////btCollisionShape* colShape = new btBoxShape(btVector3(1,1,1));
+		////btCollisionShape* colShape = new btSphereShape(btScalar(1.));
+		//collisionShapes.push_back(colShape);
+
+		/// Create Dynamic Objects
+		//btTransform startTransform;
+		//startTransform.setIdentity();
+
+		//btScalar mass(0);
+
+		///rigidbody is dynamic if and only if mass is non zero, otherwise static
+		//bool isDynamic = (mass != 0.f);
+
+		//btVector3 localInertia(0, 0, 0);
+		//if (isDynamic)
+			//colShape->calculateLocalInertia(mass, localInertia);
+
+		//startTransform.setOrigin(btVector3(0, 0, 0));
+
+		///using motionstate is recommended, it provides interpolation capabilities, and only synchronizes 'active' objects
+		//btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
+		//btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
+		//bodySphere3 = new btRigidBody(rbInfo);
+
+		//dynamicsWorld->addRigidBody(bodySphere3);
+	// }
+
 
 
 	glm::mat4 view = camera.GetViewMatrix();
@@ -327,10 +389,30 @@ int main(int argc, char* argv[])
 		btTransform transform;
 		bodySphere->getMotionState()->getWorldTransform(transform);
 		transform.getOpenGLMatrix(glm::value_ptr(model));
+		
+		//bodySphere->setLinearVelocity(btVector3(1.1, -1, 1.1)); 
 
 		btTransform transform2;
 		bodySphere2->getMotionState()->getWorldTransform(transform2);
 		transform2.getOpenGLMatrix(glm::value_ptr(model2));
+
+		bodySphere2->setLinearVelocity(btVector3(0, 0, 0));// (-1, 0.3, -1);
+
+		if (giveImpulseB || giveImpulseN) {
+			if (giveImpulseB) {
+				bodySphere2->setAngularVelocity(btVector3(0, -15, 0));
+			}
+			else {
+				bodySphere2->setAngularVelocity(btVector3(0, 5, 0));
+			}
+			//bodySphere2->applyImpulse(btVector3(-5, 0.3, -5), btVector3(0, 3, 0));
+			//bodySphere2->applyImpulse(btVector3(-1, 0.3, -1), btVector3(0, 3, 0));
+		}
+		else {
+			bodySphere2->setAngularVelocity(btVector3(0, 0, 0));
+		}
+
+
 
 		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -344,12 +426,11 @@ int main(int argc, char* argv[])
 		shader.setMatrix4("M", model);
 		shader.setMatrix4("V", view);
 		shader.setMatrix4("P", perspective);
-
-
 		cube.draw();
 
+		// batter
 		shader.setMatrix4("M", model2);
-		cube.draw();
+		cube2.draw();
 
 		shader.setMatrix4("M", modelGround);
 		plane.draw();
@@ -425,6 +506,15 @@ void processInput(GLFWwindow* window) {
 	if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
 		camera.ProcessKeyboardRotation(0.0, -1.0, 1);
 
+
+	if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS)
+		giveImpulseN = true;
+	if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
+		giveImpulseB = true;
+	if (glfwGetKey(window, GLFW_KEY_N) != GLFW_PRESS)
+		giveImpulseN = false;
+	if (glfwGetKey(window, GLFW_KEY_B) != GLFW_PRESS)
+		giveImpulseB = false;
 
 }
 
