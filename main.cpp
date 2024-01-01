@@ -14,9 +14,13 @@
 #include "camera.h"
 #include "shader.h"
 #include "object.h"
+#include "ball.h"
+
 
 #include <btBulletCollisionCommon.h>
 #include <btBulletDynamicsCommon.h>
+
+#include <map>
 
 
 const int width = 1000;
@@ -28,7 +32,53 @@ bool giveImpulseN = false;
 
 GLuint compileShader(std::string shaderCode, GLenum shaderType);
 GLuint compileProgram(GLuint vertexShader, GLuint fragmentShader);
+
 void processInput(GLFWwindow* window);
+void loadCubemapFace(const char* file, const GLenum& targetCube);
+Ball newBall(glm::vec3 position, btDiscreteDynamicsWorld* dynamicsWorld);
+
+
+/////////// TEST !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+struct Particle {
+	glm::vec3 pos, speed;
+	unsigned char r, g, b, a; // Color
+	float size, angle, weight;
+	float life; // Remaining life of the particle. if < 0 : dead and unused.
+
+};
+
+const int MaxParticles = 1000;
+Particle ParticlesContainer[MaxParticles];
+
+int LastUsedParticle = 0;
+
+// Finds a Particle in ParticlesContainer which isn't used yet.
+// (i.e. life < 0);
+int FindUnusedParticle() {
+
+	for (int i = LastUsedParticle; i < MaxParticles; i++) {
+		if (ParticlesContainer[i].life < 0) {
+			LastUsedParticle = i;
+			return i;
+		}
+	}
+
+	for (int i = 0; i < LastUsedParticle; i++) {
+		if (ParticlesContainer[i].life < 0) {
+			LastUsedParticle = i;
+			return i;
+		}
+	}
+
+	return 0; // All particles are taken, override the first one
+}
+
+// Generate 10 new particule each millisecond,
+// but limit this to 16 ms (60 fps), or if you have 1 long frame (1sec),
+// newparticles will be huge and the next frame even longer.
+
+
+///////////// TEST !!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
 #ifndef NDEBUG
@@ -156,13 +206,48 @@ int main(int argc, char* argv[])
 		"FragColor = v_col*(1.0-v_t.y); \n"
 		"} \n";
 
+	const std::string sourceVCubeMap = "#version 330 core\n"
+		"in vec3 position; \n"
+		"in vec2 tex_coords; \n"
+		"in vec3 normal; \n"
+		"uniform mat4 V; \n"
+		"uniform mat4 P; \n"
+		"out vec3 texCoord_v; \n"
+
+		" void main(){ \n"
+		"texCoord_v = position;\n"
+		//remove translation info from view matrix to only keep rotation
+		"mat4 V_no_rot = mat4(mat3(V)) ;\n"
+		"vec4 pos = P * V_no_rot * vec4(position, 1.0); \n"
+		// the positions xyz are divided by w after the vertex shader
+		// the z component is equal to the depth value
+		// we want a z always equal to 1.0 here, so we set z = w!
+		// Remember: z=1.0 is the MAXIMUM depth value ;)
+		"gl_Position = pos.xyww;\n"
+		"\n"
+		"}\n";
+
+	const std::string sourceFCubeMap =
+		"#version 330 core\n"
+		"out vec4 FragColor;\n"
+		"precision mediump float; \n"
+		"uniform samplerCube cubemapSampler; \n"
+		"in vec3 texCoord_v; \n"
+		"void main() { \n"
+		"FragColor = texture(cubemapSampler,texCoord_v); \n"
+		"} \n";
+
 
 	Shader shader(sourceV, sourceF);
+	Shader cubeMapShader = Shader(sourceVCubeMap, sourceFCubeMap);
 
+	char pathCube[] = PATH_TO_OBJECTS "/cube.obj";
+	Object cubeMap(pathCube);
+	cubeMap.makeObject(cubeMapShader);
 
-	char path[] = PATH_TO_OBJECTS "/sphere_coarse.obj";
-	Object cube(path);
-	cube.makeObject(shader);
+	char pathSphere[] = PATH_TO_OBJECTS "/sphere_coarse.obj";
+	Object sphere(pathSphere);
+	sphere.makeObject(shader);
 
 	char pathBatter[] = PATH_TO_OBJECTS "/basball.obj";
 	Object cube2(pathBatter);
@@ -245,6 +330,7 @@ int main(int argc, char* argv[])
 		//add the body to the dynamics world
 		dynamicsWorld->addRigidBody(body);
 	}
+
 	//2.b Another one is for the sphere
 	btRigidBody* bodySphere;
 	{
@@ -279,24 +365,11 @@ int main(int argc, char* argv[])
 		dynamicsWorld->addRigidBody(bodySphere);
 	}
 	//3.b Another one for the batter
-	btRigidBody* bodySphere2;
+	btRigidBody* bodyBatter;
 	{
-
-		//-(void)createShapeWithVertices:(Vertex*)vertices count : (unsigned int)vertexCount isConvex : (BOOL)convex
-		//{
-		//	_shape = new btConvexHullShape();
-		//		for (int i = 0; i < vertexCount; i++)
-		//		{
-		//			Vertex v = vertices[i];
-		//			btVector3 btv = btVector3(v.Position[0], v.Position[1], v.Position[2]);
-		//			((btConvexHullShape*)_shape)->addPoint(btv);
-		//		}
-		//}
-
 		btCollisionShape* colShape = new btBoxShape(btVector3(btScalar(5.), btScalar(0.1), btScalar(3.)));
 		collisionShapes.push_back(colShape);
-
-		
+				
 		btScalar mass(50000);
 
 		// create the initial transform
@@ -326,43 +399,10 @@ int main(int argc, char* argv[])
 		rbInfo.m_restitution = 1.0f;
 		
 		// create the rigid body
-		bodySphere2 = new btRigidBody(rbInfo);
+		bodyBatter = new btRigidBody(rbInfo);
 
-		dynamicsWorld->addRigidBody(bodySphere2);
+		dynamicsWorld->addRigidBody(bodyBatter);
 	}
-
-	//btRigidBody* bodySphere3;
-	//{
-		//create a dynamic rigidbody
-
-		//btCollisionShape* colShape = new btBoxShape(btVector3(btScalar(0.1), btScalar(3), btScalar(0.1)));
-
-		////btCollisionShape* colShape = new btBoxShape(btVector3(1,1,1));
-		////btCollisionShape* colShape = new btSphereShape(btScalar(1.));
-		//collisionShapes.push_back(colShape);
-
-		/// Create Dynamic Objects
-		//btTransform startTransform;
-		//startTransform.setIdentity();
-
-		//btScalar mass(0);
-
-		///rigidbody is dynamic if and only if mass is non zero, otherwise static
-		//bool isDynamic = (mass != 0.f);
-
-		//btVector3 localInertia(0, 0, 0);
-		//if (isDynamic)
-			//colShape->calculateLocalInertia(mass, localInertia);
-
-		//startTransform.setOrigin(btVector3(0, 0, 0));
-
-		///using motionstate is recommended, it provides interpolation capabilities, and only synchronizes 'active' objects
-		//btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
-		//btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
-		//bodySphere3 = new btRigidBody(rbInfo);
-
-		//dynamicsWorld->addRigidBody(bodySphere3);
-	// }
 
 
 
@@ -373,7 +413,101 @@ int main(int argc, char* argv[])
 	glfwSwapInterval(1);
 	//Rendering
 
+	GLuint cubeMapTexture;
+	glGenTextures(1, &cubeMapTexture);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
+
+	// texture parameters
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	//stbi_set_flip_vertically_on_load(true);
+
+	std::string pathToCubeMap = PATH_TO_TEXTURE "/cubemaps/yokohama3/";
+
+	std::map<std::string, GLenum> facesToLoad = {
+		{pathToCubeMap + "posx.jpg",GL_TEXTURE_CUBE_MAP_POSITIVE_X},
+		{pathToCubeMap + "posy.jpg",GL_TEXTURE_CUBE_MAP_POSITIVE_Y},
+		{pathToCubeMap + "posz.jpg",GL_TEXTURE_CUBE_MAP_POSITIVE_Z},
+		{pathToCubeMap + "negx.jpg",GL_TEXTURE_CUBE_MAP_NEGATIVE_X},
+		{pathToCubeMap + "negy.jpg",GL_TEXTURE_CUBE_MAP_NEGATIVE_Y},
+		{pathToCubeMap + "negz.jpg",GL_TEXTURE_CUBE_MAP_NEGATIVE_Z},
+	};
+	//load the six faces
+	for (std::pair<std::string, GLenum> pair : facesToLoad) {
+		loadCubemapFace(pair.first.c_str(), pair.second);
+	}
+
 	auto lastFrameTime = glfwGetTime();
+
+
+	/////////!!!!!!!!!!!!!!! TEST !!!!!!!!!!!!!!!!!!!!
+	////// Declare a vector to store balls
+	//std::vector<Ball> balls;
+
+	////// Create the first ball
+	//Object sphere2(pathSphere);
+	//sphere2.makeObject(shader);
+	//newBall(glm::vec3(-4, 6.75, -3.5), dynamicsWorld);
+	//balls.push_back(Ball(glm::vec3(-4, 6.75, -3.5), dynamicsWorld));
+
+	//// Create another ball with the same properties
+	//Object sphere3(pathSphere);
+	//sphere3.makeObject(shader);
+	//balls.push_back(Ball(glm::vec3(-4, 9.75, -3.5), dynamicsWorld));
+
+		//// TEST !!!!!!!!!!!!!!!!!!!!!!
+
+	//int newparticles = (int)(10 * 10000.0);
+	//if (newparticles > (int)(0.016f * 10000.0))
+	//	newparticles = (int)(0.016f * 10000.0);
+
+	//int ParticlesCount = 0;
+	//for (int i = 0; i < MaxParticles; i++) {
+	//	int delta = 10;
+	//	Particle& p = ParticlesContainer[i]; // shortcut
+
+	//	if (p.life > 0.0f) {
+
+	//		// Decrease life
+	//		p.life -= 10;
+	//		if (p.life > 0.0f) {
+
+	//			// Simulate simple physics : gravity only, no collisions
+	//			p.speed += glm::vec3(0.0f, -9.81f, 0.0f) * (float)delta* 0.5f;
+	//			p.pos += p.speed * (float)delta;
+	//			p.cameradistance = glm::length2(p.pos - CameraPosition);
+	//			//ParticlesContainer[i].pos += glm::vec3(0.0f,10.0f, 0.0f) * (float)delta;
+
+	//			// Fill the GPU buffer
+	//			g_particule_position_size_data[4 * ParticlesCount + 0] = p.pos.x;
+	//			g_particule_position_size_data[4 * ParticlesCount + 1] = p.pos.y;
+	//			g_particule_position_size_data[4 * ParticlesCount + 2] = p.pos.z;
+
+	//			g_particule_position_size_data[4 * ParticlesCount + 3] = p.size;
+
+	//			g_particule_color_data[4 * ParticlesCount + 0] = p.r;
+	//			g_particule_color_data[4 * ParticlesCount + 1] = p.g;
+	//			g_particule_color_data[4 * ParticlesCount + 2] = p.b;
+	//			g_particule_color_data[4 * ParticlesCount + 3] = p.a;
+
+	//		}
+	//		else {
+	//			// Particles that just died will be put at the end of the buffer in SortParticles();
+	//			p.cameradistance = -1.0f;
+	//		}
+
+	//		ParticlesCount++;
+
+	//	}
+	//}
+
+	////////// TEST !!!!!!!!!!!!
+
 
 	while (!glfwWindowShouldClose(window)) {
 		processInput(window);
@@ -384,32 +518,25 @@ int main(int argc, char* argv[])
 		//3. Ask bullet to do the simulation
 		dynamicsWorld->stepSimulation(now -lastFrameTime, 10);
 
-		//4. Get the model matrice for the sphere from bullet
-
-		btTransform transform;
-		bodySphere->getMotionState()->getWorldTransform(transform);
-		transform.getOpenGLMatrix(glm::value_ptr(model));
-		
-		//bodySphere->setLinearVelocity(btVector3(1.1, -1, 1.1)); 
+		//4. Get the model matrice for the object (sphere) from bullet
 
 		btTransform transform2;
-		bodySphere2->getMotionState()->getWorldTransform(transform2);
+		bodyBatter->getMotionState()->getWorldTransform(transform2);
 		transform2.getOpenGLMatrix(glm::value_ptr(model2));
 
-		bodySphere2->setLinearVelocity(btVector3(0, 0, 0));// (-1, 0.3, -1);
+		bodyBatter->setLinearVelocity(btVector3(0, 0, 0));// (-1, 0.3, -1);
 
+		// Batter movements
 		if (giveImpulseB || giveImpulseN) {
 			if (giveImpulseB) {
-				bodySphere2->setAngularVelocity(btVector3(0, -15, 0));
+				bodyBatter->setAngularVelocity(btVector3(0, -15, 0));
 			}
 			else {
-				bodySphere2->setAngularVelocity(btVector3(0, 5, 0));
+				bodyBatter->setAngularVelocity(btVector3(0, 5, 0));
 			}
-			//bodySphere2->applyImpulse(btVector3(-5, 0.3, -5), btVector3(0, 3, 0));
-			//bodySphere2->applyImpulse(btVector3(-1, 0.3, -1), btVector3(0, 3, 0));
 		}
 		else {
-			bodySphere2->setAngularVelocity(btVector3(0, 0, 0));
+			bodyBatter->setAngularVelocity(btVector3(0, 0, 0));
 		}
 
 
@@ -417,24 +544,56 @@ int main(int argc, char* argv[])
 		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-
-
 		view = camera.GetViewMatrix();
 		// Use the shader Class to send the uniform
-		shader.use();
-		
-		shader.setMatrix4("M", model);
+		shader.use(); // not in the tests
 		shader.setMatrix4("V", view);
 		shader.setMatrix4("P", perspective);
-		cube.draw();
 
-		// batter
+		///// !!!!!!!!!!!!!!!!!!!!!!!!!!TESTS !!!!!!!!!!!!!!!!!!!!!!!!
+		//
+		// Update and draw each ball
+		//for (auto& ball : balls) {
+		//	int i = 0;
+		//	if (i == 0) {
+		//		ball.update(sphere2);
+		//	}
+		//	else {
+		//		ball.update(sphere3);
+		//	}
+		//	ball.draw(shader);
+		//}
+
+		
+		// Get the model matrice for the object (sphere) from bullet
+		btTransform transform;
+		bodySphere->getMotionState()->getWorldTransform(transform);
+		transform.getOpenGLMatrix(glm::value_ptr(model));
+
+		// draw sphere
+		shader.setMatrix4("M", model);
+		sphere.draw();
+
+		// draw batter
 		shader.setMatrix4("M", model2);
 		cube2.draw();
 
+		// draw ground
 		shader.setMatrix4("M", modelGround);
 		plane.draw();
 
+		// draw cubemap
+		cubeMapShader.use();
+		cubeMapShader.setMatrix4("V", view);
+		cubeMapShader.setMatrix4("P", perspective);
+		cubeMapShader.setInteger("cubemapTexture", 0);
+
+		cubeMap.draw();
+		glDepthFunc(GL_LESS);
+
+		glDepthFunc(GL_LEQUAL);  // Set depth function to less than or equal for cubemap
+		cubeMap.draw();
+		glDepthFunc(GL_LESS);    // Reset depth function to default
 		fps(now);
 		lastFrameTime = now;
 		glfwSwapBuffers(window);
@@ -521,3 +680,20 @@ void processInput(GLFWwindow* window) {
 
 
 
+void loadCubemapFace(const char* path, const GLenum& targetFace)
+{
+	int imWidth, imHeight, imNrChannels;
+	unsigned char* data = stbi_load(path, &imWidth, &imHeight, &imNrChannels, 0);
+	if (data)
+	{
+
+		glTexImage2D(targetFace, 0, GL_RGB, imWidth, imHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+		//glGenerateMipmap(targetFace);
+	}
+	else {
+		std::cout << "Failed to Load texture" << std::endl;
+		const char* reason = stbi_failure_reason();
+		std::cout << reason << std::endl;
+	}
+	stbi_image_free(data);
+}
