@@ -14,6 +14,10 @@
 #include <glm/glm.hpp>
 #include<glm/gtc/matrix_transform.hpp>
 
+//#include <tinyxml2.h>
+
+//using namespace tinyxml2;
+
 
 /*Principe :
 * On donne le path du fichier -> on lit le fichier
@@ -45,8 +49,14 @@ public:
 
 	glm::mat4 model = glm::mat4(1.0);
 
-
+	/**/
 	Object(const char* path) {
+		//XMLDocument doc;
+		/*if (doc.LoadFile(path) != tinyxml2::XML_SUCCESS) {
+			std::cerr << "Failed to load COLLADA file: " << path << std::endl;
+			return;
+		}*/
+
 
 		std::ifstream infile(path);
 		//TODO Error management
@@ -140,9 +150,22 @@ public:
 
 		numVertices = vertices.size();
 	}
+	/**/
 
+	/*Object::Object(const char* path) {
+		tinyxml2::XMLDocument doc;
+		if (doc.LoadFile(path) != tinyxml2::XML_SUCCESS) {
+			std::cerr << "Failed to load COLLADA file: " << path << std::endl;
+			return;
+		}
+		
 
+		// Parse the COLLADA file and populate positions, textures, normals, and vertices vectors
+		// You need to implement this part based on the structure of your COLLADA file
 
+		// After parsing, you can set up VBO, VAO, etc., and populate the model matrix if needed
+	}
+	*/
 	void makeObject(Shader shader, bool texture = true) {
 		/* This is a working but not perfect solution, you can improve it if you need/want
 		* What happens if you call this function twice on an Model ?
