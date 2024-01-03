@@ -23,12 +23,19 @@
 #include <map>
 
 
-const int width = 1000;
+const int width = 1500;
 const int height = 1000;
 bool giveImpulseB = false;
 bool giveImpulseN = false;
+bool giveImpulseV = false;
 bool ballExceededThreshold = false;
-int initialLifetime = 1000;
+int initialLifetime = 10;
+float deltaTime2 = 0;
+int ballCount = 1;
+bool transitionBall = false;
+bool previousStateV = false;
+btAlignedObjectArray<btCollisionShape*> collisionShapes;
+
 
 struct Particle {
 	glm::vec3 position;
@@ -43,6 +50,8 @@ GLuint compileProgram(GLuint vertexShader, GLuint fragmentShader);
 
 void processInput(GLFWwindow* window);
 void loadCubemapFace(const char* file, const GLenum& targetCube);
+btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position);
+
 
 
 #ifndef NDEBUG
@@ -99,6 +108,7 @@ Camera camera(glm::vec3(0.0, 1.0, 10));
 
 int main(int argc, char* argv[])
 {
+	srand(static_cast<unsigned int>(glfwGetTime())); // initialize random seed
 	// asteroids
 	/*unsigned int amount = 10;
 	glm::mat4* modelMatrices;
@@ -195,6 +205,27 @@ int main(int argc, char* argv[])
 		"v_t = tex_coord; \n"
 		"}\n";
 
+	const std::string sourceV2 = "#version 330 core\n"
+		"in vec3 position; \n"
+		"in vec2 tex_coords; \n"
+		"in vec3 normal; \n"
+
+		"out vec3 v_frag_coord; \n"
+		"out vec3 v_normal; \n"
+
+		"uniform mat4 M; \n"
+		"uniform mat4 itM; \n"
+		"uniform mat4 V; \n"
+		"uniform mat4 P; \n"
+
+		" void main(){ \n"
+		"vec4 frag_coord = M*vec4(position, 1.0); \n"
+		"gl_Position = P*V*frag_coord; \n"
+		"v_normal = vec3(itM * vec4(normal, 1.0)); \n"
+		"v_frag_coord = frag_coord.xyz; \n"
+		"\n"
+		"}\n";
+
 	const std::string sourceF = "#version 330 core\n"
 		"out vec4 FragColor;"
 		"precision mediump float; \n"
@@ -202,6 +233,27 @@ int main(int argc, char* argv[])
 		"in vec2 v_t; \n"
 		"void main() { \n"
 		"FragColor = v_col*(1.0-v_t.y); \n"
+		"} \n";
+
+	const std::string sourceF2 = "#version 400 core\n"
+		"out vec4 FragColor;\n"
+		"precision mediump float; \n"
+
+		"in vec3 v_frag_coord; \n"
+		"in vec3 v_normal; \n"
+
+		"uniform vec3 u_view_pos; \n"
+
+		"uniform samplerCube cubemapSampler; \n"
+
+
+		"void main() { \n"
+		// For refraction "float ratio = 1.00 / refractionIndice;\n"
+		"vec3 N = normalize(v_normal);\n"
+		"vec3 V = normalize(u_view_pos - v_frag_coord); \n"
+		"vec3 R = reflect(-V,N); \n"
+		// For refraction "vec3 R = refract(-V,N,ratio); \n"
+		"FragColor = texture(cubemapSampler,R); \n"
 		"} \n";
 
 
@@ -236,13 +288,12 @@ int main(int argc, char* argv[])
 
 		" void main(){ \n"
 		"texCoord_v = position;\n"
-		//remove translation info from view matrix to only keep rotation
-		"mat4 V_no_rot = mat4(mat3(V)) ;\n"
+		"mat4 V_no_rot = mat4(mat3(V)) ;\n" //remove translation info from view matrix to only keep rotation
 		"vec4 pos = P * V_no_rot * vec4(position, 1.0); \n"
 		// the positions xyz are divided by w after the vertex shader
 		// the z component is equal to the depth value
 		// we want a z always equal to 1.0 here, so we set z = w!
-		// Remember: z=1.0 is the MAXIMUM depth value ;)
+		// Remember: z=1.0 is the MAXIMUM depth value
 		"gl_Position = pos.xyww;\n"
 		"\n"
 		"}\n";
@@ -261,6 +312,7 @@ int main(int argc, char* argv[])
 	Shader shader(sourceV, sourceF);
 	/*	Shader shaderParticle(particleVertexShaderSource, particleFragmentShaderSource);
 	*/
+	Shader shader2(sourceV2, sourceF2);
 	Shader cubeMapShader = Shader(sourceVCubeMap, sourceFCubeMap);
 
 	char pathCube[] = PATH_TO_OBJECTS "/cube.obj";
@@ -286,6 +338,7 @@ int main(int argc, char* argv[])
 	int deltaFrame = 0;
 	//fps function
 	auto fps = [&](double now) {
+		deltaTime2 = now - prev;
 		double deltaTime = now - prev;
 		deltaFrame++;
 		if (deltaTime > 0.5) {
@@ -295,6 +348,40 @@ int main(int argc, char* argv[])
 			std::cout << "\r FPS: " << fpsCount;
 		}
 		};
+
+
+
+	glm::vec3 light_pos = glm::vec3(1.0, 2.0, 1.5);
+	glm::mat4 model = glm::mat4(1.0);
+	model = glm::translate(model, glm::vec3(0.0, 0.0, -2.0));
+	model = glm::scale(model, glm::vec3(0.5, 0.5, 0.5));
+
+	glm::mat4 inverseModel = glm::transpose(glm::inverse(model));
+
+	glm::mat4 view = camera.GetViewMatrix();
+	glm::mat4 perspective = camera.GetProjectionMatrix();
+
+	float ambient = 0.1;
+	float diffuse = 0.5;
+	float specular = 0.8;
+
+	glm::vec3 materialColour = glm::vec3(0.5f, 0.6, 0.8);
+	// test autre couleur glm::vec3 materialColour = glm::vec3(0.f, 0., 0.);
+
+
+
+
+	shader2.use();
+	shader2.setFloat("shininess", 32.0f);
+	shader2.setVector3f("materialColour", materialColour);
+	shader2.setFloat("light.ambient_strength", ambient);
+	shader2.setFloat("light.diffuse_strength", diffuse);
+	shader2.setFloat("light.specular_strength", specular);
+	shader2.setFloat("light.constant", 1.0);
+	shader2.setFloat("light.linear", 0.14);
+	shader2.setFloat("light.quadratic", 0.07);
+	// For refraction shader2.setFloat("refractionIndice", 1.52);
+
 
 
 	//1. Create bullet world 
@@ -315,13 +402,11 @@ int main(int argc, char* argv[])
 
 
 	//2. Create the collisions shapes
-	glm::mat4 model = glm::mat4(1.0);
 	glm::mat4 model2 = glm::mat4(2.0);
 	glm::mat4 modelGround = glm::mat4(1.0);
 	modelGround = glm::scale(modelGround, glm::vec3(10, 1, 10));
 	modelGround = glm::translate(modelGround, glm::vec3(0, 0, 0));
 
-	btAlignedObjectArray<btCollisionShape*> collisionShapes;
 	//2.a We need one for the ground
 	{
 		btCollisionShape* groundShape = new btBoxShape(btVector3(btScalar(50.), btScalar(50.), btScalar(50.)));
@@ -340,28 +425,12 @@ int main(int argc, char* argv[])
 
 		dynamicsWorld->addRigidBody(body);
 	}
-	//2.b Another one is for the sphere
-	btRigidBody* bodySphere;
-	{
-		btCollisionShape* colShape = new btSphereShape(btScalar(1.));
-		collisionShapes.push_back(colShape);
-		btTransform startTransform;
-		startTransform.setIdentity();
-		btScalar mass(1);
-		//rigidbody is dynamic if and only if mass is non zero, otherwise static
-		bool isDynamic = (mass != 0.f);
-		btVector3 localInertia(1, 1, 1);
-		if (isDynamic)
-			colShape->calculateLocalInertia(mass, localInertia);
-		startTransform.setOrigin(btVector3(-4, 4.75, -3.5)); // -4, 13, 3.5 // -14 13 -7.5
-		//using motionstate is recommended, it provides interpolation capabilities, and only synchronizes 'active' objects
-		btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
-		btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
-		rbInfo.m_friction = 1.f;
-		rbInfo.m_restitution = 1.0f;
-		bodySphere = new btRigidBody(rbInfo);
-		dynamicsWorld->addRigidBody(bodySphere);
-	}
+	//2.b 3 other ones are for the 3 balls of the game
+	btRigidBody* bodySphere1 = createSphere(dynamicsWorld, 1.0, btVector3(-4, 5, -3.5));
+	btRigidBody* bodySphere2 = createSphere(dynamicsWorld, 1.0, btVector3(-4, 500, -3.5));
+	btRigidBody* bodySphere3 = createSphere(dynamicsWorld, 1.0, btVector3(-4, 1000, -3.5));
+
+	
 	//3.b Another one for the batter
 	btRigidBody* bodyBatter;
 	{
@@ -391,11 +460,6 @@ int main(int argc, char* argv[])
 
 		dynamicsWorld->addRigidBody(bodyBatter);
 	}
-
-
-	glm::mat4 view = camera.GetViewMatrix();
-	glm::mat4 perspective = camera.GetProjectionMatrix();
-
 
 	glfwSwapInterval(1);
 	//Rendering
@@ -432,7 +496,8 @@ int main(int argc, char* argv[])
 	auto lastFrameTime = glfwGetTime();
 
 	std::vector<Particle> ballTrailParticles;
-	btVector3 previousVelocity = bodySphere->getLinearVelocity();
+	btVector3 initialVelocity = bodySphere1->getLinearVelocity();
+	btVector3 previousVelocity = initialVelocity;
 	float speedChangeThreshold = 2.0f;
 
 
@@ -446,6 +511,39 @@ int main(int argc, char* argv[])
 		//3. Ask bullet to do the simulation
 		dynamicsWorld->stepSimulation(now - lastFrameTime, 10);
 
+		// Ball change
+		if (giveImpulseV && (previousStateV == false)) {
+			ballCount += 1;
+			transitionBall = true;
+			previousStateV = true;
+		} else if (!giveImpulseV) {
+			previousStateV = false;
+		}
+
+
+		// Which ball to process
+		btRigidBody* bodySphere;
+		if (ballCount == 1) {
+			bodySphere = bodySphere1;
+		} else if (ballCount == 2) {
+			bodySphere = bodySphere2;
+		} else {
+			bodySphere = bodySphere3;
+		}
+
+
+		if (transitionBall) {
+			// Move the ball to a specific position
+			btTransform newTransform;
+			newTransform.setIdentity();
+			newTransform.setOrigin(btVector3(-4, 5, -3.5));
+			bodySphere->getMotionState()->setWorldTransform(newTransform);
+			bodySphere->setWorldTransform(newTransform);
+			btVector3 previousVelocity = initialVelocity;
+			ballTrailParticles.clear(); // Clear the trail particles
+			ballExceededThreshold = false;
+			transitionBall = false;
+		}
 
 		// Compare the actual speed with the previous one
 		btVector3 currentVelocity = bodySphere->getLinearVelocity();
@@ -454,10 +552,8 @@ int main(int argc, char* argv[])
 		// Check if speed is above the threshold
 		if (speedChange > speedChangeThreshold) {
 			ballExceededThreshold = true;
-		}
-		else {
-			// Update the speed
-			previousVelocity = currentVelocity;
+		} else {
+			previousVelocity = currentVelocity;   // Update the speed
 		}
 
 		//4. Get the model matrice for the object (batter) from bullet
@@ -472,33 +568,62 @@ int main(int argc, char* argv[])
 		if (giveImpulseB || giveImpulseN) {
 			if (giveImpulseB) {
 				bodyBatter->setAngularVelocity(btVector3(0, -15, 0));
-			}
-			else {
+			} else {
 				bodyBatter->setAngularVelocity(btVector3(0, 5, 0));
 			}
-		}
-		else {
+		} else {
 			bodyBatter->setAngularVelocity(btVector3(0, 0, 0));
 		}
+
 
 
 		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+
 		view = camera.GetViewMatrix();
-		// Use the shader Class to send the uniform
-		shader.use();
-		shader.setMatrix4("V", view);
-		shader.setMatrix4("P", perspective);
 
-
-		// Get the model matrice for the object (sphere) from bullet
+		// Old code for a visible ball
+/*		// Get the model matrice for the object (sphere) from bullet
 		btTransform transform;
 		bodySphere->getMotionState()->getWorldTransform(transform);
 		transform.getOpenGLMatrix(glm::value_ptr(model));
-
 		shader.setMatrix4("M", model);
 		sphere.draw();
+*/
+
+		// Use the shader Class to send the uniform
+		shader2.use();
+		btTransform transform;
+		bodySphere->getMotionState()->getWorldTransform(transform);
+		transform.getOpenGLMatrix(glm::value_ptr(model));
+		shader2.setMatrix4("M", model);
+		shader2.setMatrix4("itM", inverseModel);
+		shader2.setMatrix4("V", view);
+		shader2.setMatrix4("P", perspective);
+		shader2.setVector3f("u_view_pos", camera.Position);
+
+		auto delta = light_pos + glm::vec3(0.0, 0.0, 2 * std::sin(now));
+
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
+		cubeMapShader.setInteger("cubemapTexture", 0);
+
+		glDepthFunc(GL_LEQUAL);
+		glm::vec3 ballPosition2(
+			transform.getOrigin().getX(),
+			transform.getOrigin().getY(),
+			transform.getOrigin().getZ()
+		);
+		std::cout << "\n ball" << ballCount << " Position " << ballPosition2.x << " " << ballPosition2.y << " " << ballPosition2.z;
+		sphere.draw(); 
+
+
+
+		shader.use();
+		shader.setMatrix4("V", view);
+		shader.setMatrix4("P", perspective);
 
 		if (ballExceededThreshold) {
 			btTransform transform;
@@ -511,14 +636,10 @@ int main(int argc, char* argv[])
 
 			// Add a new particle to the trail
 			Particle newParticle;
-			newParticle.position = ballPosition;
+			newParticle.position = (ballPosition);
 			newParticle.color = glm::vec3(0.0f, 0.0f, 1.0f);
 			newParticle.velocity = glm::vec3(
-				// Random x velocity,
-				// Random y velocity,
-				// Random z velocity
-				//10.0f, 10.0f, 10.0f
-				1.0f, 1.0f, 1.0f
+				0.01f, -0.01f, 0.01f
 			);
 			newParticle.lifetime = initialLifetime;
 			ballTrailParticles.push_back(newParticle);
@@ -541,25 +662,19 @@ int main(int argc, char* argv[])
 */
 		for (auto& particle : ballTrailParticles) {
 
-			float deltaTime = 10;
-			particle.lifetime -= deltaTime;
-
-			// Update position --- Cannot see the result ---
-			//particle.position += particle.velocity * deltaTime;
-
-			// Apply gravity
-			particle.velocity.y -= 9.81 * deltaTime;
+			particle.lifetime -= deltaTime2;
+			particle.position += particle.velocity * deltaTime2; // Update position
+			particle.velocity.y -= 9.81 * deltaTime2/1000; // Apply gravity
 
 			// Change color ------ NOT WORKING ------
 			float colorChangeFactor = particle.lifetime / initialLifetime;  // Value between 0 and 1
 			particle.color *= colorChangeFactor;  // Diminish the color over time
 
-
 			glm::mat4 model = glm::translate(glm::mat4(1.0f), particle.position);
 			shader.setMatrix4("M", model);
 			//sphere.draw();
+			glPointSize(1.0f);
 			glDrawArrays(GL_POINTS, 0, 100);
-
 
 			if (particle.lifetime <= 0.0f) {
 				ballTrailParticles.erase(ballTrailParticles.begin(), ballTrailParticles.begin() + 1);
@@ -568,6 +683,7 @@ int main(int argc, char* argv[])
 		}
 
 		//glDrawArrays(GL_POINTS, 0, ballTrailParticles.size());
+		
 
 
 		// draw batter
@@ -575,7 +691,8 @@ int main(int argc, char* argv[])
 		cube2.draw();
 
 		// draw ground
-		shader.setMatrix4("M", modelGround);
+		shader2.use();
+		shader2.setMatrix4("M", modelGround);
 		plane.draw();
 
 		// draw cubemap
@@ -598,8 +715,7 @@ int main(int argc, char* argv[])
 	{
 		btCollisionObject* obj = dynamicsWorld->getCollisionObjectArray()[i];
 		btRigidBody* body = btRigidBody::upcast(obj);
-		if (body && body->getMotionState())
-		{
+		if (body && body->getMotionState())	{
 			delete body->getMotionState();
 		}
 		dynamicsWorld->removeCollisionObject(obj);
@@ -668,6 +784,12 @@ void processInput(GLFWwindow* window) {
 	if (glfwGetKey(window, GLFW_KEY_B) != GLFW_PRESS)
 		giveImpulseB = false;
 
+	if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS)
+		giveImpulseV = true;
+	if (glfwGetKey(window, GLFW_KEY_V) != GLFW_PRESS)
+		giveImpulseV = false;
+
+
 }
 
 
@@ -691,3 +813,27 @@ void loadCubemapFace(const char* path, const GLenum& targetFace)
 	stbi_image_free(data);
 }
 
+btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position) {
+	btCollisionShape* colShape = new btSphereShape(btScalar(1.));
+	collisionShapes.push_back(colShape);
+
+	btTransform startTransform;
+	startTransform.setIdentity();
+
+	// Set the position
+	startTransform.setOrigin(position);
+
+	btVector3 localInertia(1, 1, 1);
+	if (mass != 0.f)
+		colShape->calculateLocalInertia(mass, localInertia);
+
+	btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
+	btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
+	rbInfo.m_friction = 1.f;
+	rbInfo.m_restitution = 1.0f;
+
+	btRigidBody* body = new btRigidBody(rbInfo);
+	dynamicsWorld->addRigidBody(body);
+
+	return body;
+}
