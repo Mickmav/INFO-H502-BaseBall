@@ -23,11 +23,26 @@
 #include <map>
 
 
-const int width = 1000;
+const int width = 1500;
 const int height = 1000;
 bool giveImpulseB = false;
 bool giveImpulseN = false;
+bool giveImpulseV = false;
+bool ballExceededThreshold = false;
+int initialLifetime = 10;
+float deltaTime2 = 0;
+int ballCount = 1;
+bool transitionBall = false;
+bool previousStateV = false;
+btAlignedObjectArray<btCollisionShape*> collisionShapes;
 
+
+struct Particle {
+	glm::vec3 position;
+	glm::vec3 velocity;  // Initial velocity
+	glm::vec3 color;
+	float lifetime;  // Time until the particle disappears
+};
 
 
 GLuint compileShader(std::string shaderCode, GLenum shaderType);
@@ -35,50 +50,8 @@ GLuint compileProgram(GLuint vertexShader, GLuint fragmentShader);
 
 void processInput(GLFWwindow* window);
 void loadCubemapFace(const char* file, const GLenum& targetCube);
-Ball newBall(glm::vec3 position, btDiscreteDynamicsWorld* dynamicsWorld);
+btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position);
 
-
-/////////// TEST !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-struct Particle {
-	glm::vec3 pos, speed;
-	unsigned char r, g, b, a; // Color
-	float size, angle, weight;
-	float life; // Remaining life of the particle. if < 0 : dead and unused.
-
-};
-
-const int MaxParticles = 1000;
-Particle ParticlesContainer[MaxParticles];
-
-int LastUsedParticle = 0;
-
-// Finds a Particle in ParticlesContainer which isn't used yet.
-// (i.e. life < 0);
-int FindUnusedParticle() {
-
-	for (int i = LastUsedParticle; i < MaxParticles; i++) {
-		if (ParticlesContainer[i].life < 0) {
-			LastUsedParticle = i;
-			return i;
-		}
-	}
-
-	for (int i = 0; i < LastUsedParticle; i++) {
-		if (ParticlesContainer[i].life < 0) {
-			LastUsedParticle = i;
-			return i;
-		}
-	}
-
-	return 0; // All particles are taken, override the first one
-}
-
-// Generate 10 new particule each millisecond,
-// but limit this to 16 ms (60 fps), or if you have 1 long frame (1sec),
-// newparticles will be huge and the next frame even longer.
-
-
-///////////// TEST !!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
 #ifndef NDEBUG
@@ -135,10 +108,44 @@ Camera camera(glm::vec3(0.0, 1.0, 10));
 
 int main(int argc, char* argv[])
 {
+	srand(static_cast<unsigned int>(glfwGetTime())); // initialize random seed
+	// asteroids
+	/*unsigned int amount = 10;
+	glm::mat4* modelMatrices;
+	modelMatrices = new glm::mat4[amount];
+	srand(static_cast<unsigned int>(glfwGetTime())); // initialize random seed
+	float radius = 5.0;
+	float offset = 2.5f;
+	for (unsigned int i = 0; i < amount; i++)
+	{
+		glm::mat4 model = glm::mat4(1.0f);
+		// 1. translation: displace along circle with 'radius' in range [-offset, offset]
+		float angle = (float)i / (float)amount * 360.0f;
+		float displacement = (rand() % (int)(2 * offset * 10)) / 10.0f - offset;
+		float x = sin(angle) * radius + displacement;
+		displacement = (rand() % (int)(2 * offset * 10)) / 10.0f - offset;
+		float y = displacement * 0.9f; // keep height of asteroid field smaller compared to width of x and z
+		displacement = (rand() % (int)(2 * offset * 10)) / 10.0f - offset;
+		float z = cos(angle) * radius + displacement;
+		model = glm::translate(model, glm::vec3(x, y, z));
+
+		// 2. scale: Scale between 0.05 and 0.25f
+		//float scale = static_cast<float>((rand() % 20) / 100.0 + 0.05);
+		//model = glm::scale(model, glm::vec3(scale));
+
+		// 3. rotation: add random rotation around a (semi)randomly picked rotation axis vector
+		//float rotAngle = static_cast<float>((rand() % 360));
+		//model = glm::rotate(model, rotAngle, glm::vec3(0.4f, 0.6f, 0.8f));
+
+		// 4. now add to list of matrices
+		modelMatrices[i] = model;
+	}
+	*/
+
+
 	std::cout << "Welcome to the bullet demo " << std::endl;
 	std::cout << " This code is an example of the bullet library \n";
 
-	//Boilerplate
 	//Create the OpenGL context 
 	if (!glfwInit()) {
 		throw std::runtime_error("Failed to initialise GLFW \n");
@@ -197,6 +204,28 @@ int main(int argc, char* argv[])
 		"v_col = vec4(normal*0.5 + 0.5, 1.0);\n"
 		"v_t = tex_coord; \n"
 		"}\n";
+
+	const std::string sourceV2 = "#version 330 core\n"
+		"in vec3 position; \n"
+		"in vec2 tex_coords; \n"
+		"in vec3 normal; \n"
+
+		"out vec3 v_frag_coord; \n"
+		"out vec3 v_normal; \n"
+
+		"uniform mat4 M; \n"
+		"uniform mat4 itM; \n"
+		"uniform mat4 V; \n"
+		"uniform mat4 P; \n"
+
+		" void main(){ \n"
+		"vec4 frag_coord = M*vec4(position, 1.0); \n"
+		"gl_Position = P*V*frag_coord; \n"
+		"v_normal = vec3(itM * vec4(normal, 1.0)); \n"
+		"v_frag_coord = frag_coord.xyz; \n"
+		"\n"
+		"}\n";
+
 	const std::string sourceF = "#version 330 core\n"
 		"out vec4 FragColor;"
 		"precision mediump float; \n"
@@ -205,6 +234,49 @@ int main(int argc, char* argv[])
 		"void main() { \n"
 		"FragColor = v_col*(1.0-v_t.y); \n"
 		"} \n";
+
+	const std::string sourceF2 = "#version 400 core\n"
+		"out vec4 FragColor;\n"
+		"precision mediump float; \n"
+
+		"in vec3 v_frag_coord; \n"
+		"in vec3 v_normal; \n"
+
+		"uniform vec3 u_view_pos; \n"
+
+		"uniform samplerCube cubemapSampler; \n"
+
+
+		"void main() { \n"
+		// For refraction "float ratio = 1.00 / refractionIndice;\n"
+		"vec3 N = normalize(v_normal);\n"
+		"vec3 V = normalize(u_view_pos - v_frag_coord); \n"
+		"vec3 R = reflect(-V,N); \n"
+		// For refraction "vec3 R = refract(-V,N,ratio); \n"
+		"FragColor = texture(cubemapSampler,R); \n"
+		"} \n";
+
+
+	/*	const std::string particleVertexShaderSource = "#version 330 core\n"
+			"in vec3 position; \n"
+			"in vec3 color; \n"  // Add color attribute
+			"out vec4 v_col; \n"
+			"uniform mat4 M; \n"
+			"uniform mat4 V; \n"
+			"uniform mat4 P; \n"
+			"void main(){ \n"
+			"    gl_Position = P * V * M * vec4(position, 1);\n"
+			"    v_col = vec4(color, 1.0); \n"
+			"} \n";
+
+		const std::string particleFragmentShaderSource = "#version 330 core\n"
+			"out vec4 FragColor;"
+			"in vec4 v_col; \n"
+			"void main() { \n"
+			"    FragColor = v_col; \n"
+			"} \n";
+	*/
+
 
 	const std::string sourceVCubeMap = "#version 330 core\n"
 		"in vec3 position; \n"
@@ -216,13 +288,12 @@ int main(int argc, char* argv[])
 
 		" void main(){ \n"
 		"texCoord_v = position;\n"
-		//remove translation info from view matrix to only keep rotation
-		"mat4 V_no_rot = mat4(mat3(V)) ;\n"
+		"mat4 V_no_rot = mat4(mat3(V)) ;\n" //remove translation info from view matrix to only keep rotation
 		"vec4 pos = P * V_no_rot * vec4(position, 1.0); \n"
 		// the positions xyz are divided by w after the vertex shader
 		// the z component is equal to the depth value
 		// we want a z always equal to 1.0 here, so we set z = w!
-		// Remember: z=1.0 is the MAXIMUM depth value ;)
+		// Remember: z=1.0 is the MAXIMUM depth value
 		"gl_Position = pos.xyww;\n"
 		"\n"
 		"}\n";
@@ -239,13 +310,16 @@ int main(int argc, char* argv[])
 
 
 	Shader shader(sourceV, sourceF);
+	/*	Shader shaderParticle(particleVertexShaderSource, particleFragmentShaderSource);
+	*/
+	Shader shader2(sourceV2, sourceF2);
 	Shader cubeMapShader = Shader(sourceVCubeMap, sourceFCubeMap);
 
 	char pathCube[] = PATH_TO_OBJECTS "/cube.obj";
 	Object cubeMap(pathCube);
 	cubeMap.makeObject(cubeMapShader);
 
-	char pathSphere[] = PATH_TO_OBJECTS "/sphere_coarse.obj";
+	char pathSphere[] = PATH_TO_OBJECTS "/sphere_smooth.obj";
 	Object sphere(pathSphere);
 	sphere.makeObject(shader);
 
@@ -264,6 +338,7 @@ int main(int argc, char* argv[])
 	int deltaFrame = 0;
 	//fps function
 	auto fps = [&](double now) {
+		deltaTime2 = now - prev;
 		double deltaTime = now - prev;
 		deltaFrame++;
 		if (deltaTime > 0.5) {
@@ -273,6 +348,40 @@ int main(int argc, char* argv[])
 			std::cout << "\r FPS: " << fpsCount;
 		}
 		};
+
+
+
+	glm::vec3 light_pos = glm::vec3(1.0, 2.0, 1.5);
+	glm::mat4 model = glm::mat4(1.0);
+	model = glm::translate(model, glm::vec3(0.0, 0.0, -2.0));
+	model = glm::scale(model, glm::vec3(0.5, 0.5, 0.5));
+
+	glm::mat4 inverseModel = glm::transpose(glm::inverse(model));
+
+	glm::mat4 view = camera.GetViewMatrix();
+	glm::mat4 perspective = camera.GetProjectionMatrix();
+
+	float ambient = 0.1;
+	float diffuse = 0.5;
+	float specular = 0.8;
+
+	glm::vec3 materialColour = glm::vec3(0.5f, 0.6, 0.8);
+	// test autre couleur glm::vec3 materialColour = glm::vec3(0.f, 0., 0.);
+
+
+
+
+	shader2.use();
+	shader2.setFloat("shininess", 32.0f);
+	shader2.setVector3f("materialColour", materialColour);
+	shader2.setFloat("light.ambient_strength", ambient);
+	shader2.setFloat("light.diffuse_strength", diffuse);
+	shader2.setFloat("light.specular_strength", specular);
+	shader2.setFloat("light.constant", 1.0);
+	shader2.setFloat("light.linear", 0.14);
+	shader2.setFloat("light.quadratic", 0.07);
+	// For refraction shader2.setFloat("refractionIndice", 1.52);
+
 
 
 	//1. Create bullet world 
@@ -288,127 +397,69 @@ int main(int argc, char* argv[])
 	btSequentialImpulseConstraintSolver* solver = new btSequentialImpulseConstraintSolver;
 	//Finally create the world
 	btDiscreteDynamicsWorld* dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, overlappingPairCache, solver, collisionConfiguration);
-	//add gravity
+
 	dynamicsWorld->setGravity(btVector3(0, -1, 0));
 
 
 	//2. Create the collisions shapes
-	glm::mat4 model = glm::mat4(1.0);
 	glm::mat4 model2 = glm::mat4(2.0);
 	glm::mat4 modelGround = glm::mat4(1.0);
 	modelGround = glm::scale(modelGround, glm::vec3(10, 1, 10));
-	modelGround = glm::translate(modelGround, glm::vec3(0,0,0));
+	modelGround = glm::translate(modelGround, glm::vec3(0, 0, 0));
 
-	btAlignedObjectArray<btCollisionShape*> collisionShapes;
 	//2.a We need one for the ground
 	{
 		btCollisionShape* groundShape = new btBoxShape(btVector3(btScalar(50.), btScalar(50.), btScalar(50.)));
-
 		collisionShapes.push_back(groundShape);
-
 		btTransform groundTransform;
 		groundTransform.setIdentity();
 		groundTransform.setOrigin(btVector3(0, -50, 0));
-		//already init the model for ground 
-		
-
 		btScalar mass(0.);
-
-		//rigidbody is dynamic if and only if mass is non zero, otherwise static
-		bool isDynamic = (mass != 0.f);
-
+		bool isDynamic = false;
 		btVector3 localInertia(0, 0, 0);
-		if (isDynamic)
-			groundShape->calculateLocalInertia(mass, localInertia);
 
-		//using motionstate is optional, it provides interpolation capabilities, and only synchronizes 'active' objects
 		btDefaultMotionState* myMotionState = new btDefaultMotionState(groundTransform);
 		btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, groundShape, localInertia);
 		rbInfo.m_restitution = 1.0f;
 		btRigidBody* body = new btRigidBody(rbInfo);
 
-		//add the body to the dynamics world
 		dynamicsWorld->addRigidBody(body);
 	}
+	//2.b 3 other ones are for the 3 balls of the game
+	btRigidBody* bodySphere1 = createSphere(dynamicsWorld, 1.0, btVector3(-4, 5, -3.5));
+	btRigidBody* bodySphere2 = createSphere(dynamicsWorld, 1.0, btVector3(-4, 500, -3.5));
+	btRigidBody* bodySphere3 = createSphere(dynamicsWorld, 1.0, btVector3(-4, 1000, -3.5));
 
-	//2.b Another one is for the sphere
-	btRigidBody* bodySphere;
-	{
-		//create a dynamic rigidbody
-
-		//btCollisionShape* colShape = new btBoxShape(btVector3(1,1,1));
-		btCollisionShape* colShape = new btSphereShape(btScalar(1.));
-		collisionShapes.push_back(colShape);
-
-		/// Create Dynamic Objects
-		btTransform startTransform;
-		startTransform.setIdentity();
-
-		btScalar mass(1);
-
-		//rigidbody is dynamic if and only if mass is non zero, otherwise static
-		bool isDynamic = (mass != 0.f);
-
-		btVector3 localInertia(1, 1, 1);
-		if (isDynamic)
-			colShape->calculateLocalInertia(mass, localInertia);
-
-		startTransform.setOrigin(btVector3(-4, 4.75, -3.5)); // -4, 13, 3.5 // -14 13 -7.5
-
-		//using motionstate is recommended, it provides interpolation capabilities, and only synchronizes 'active' objects
-		btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
-		btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
-		rbInfo.m_friction = 1.f;
-		rbInfo.m_restitution = 1.0f;
-		bodySphere = new btRigidBody(rbInfo);
-
-		dynamicsWorld->addRigidBody(bodySphere);
-	}
+	
 	//3.b Another one for the batter
 	btRigidBody* bodyBatter;
 	{
 		btCollisionShape* colShape = new btBoxShape(btVector3(btScalar(5.), btScalar(0.1), btScalar(3.)));
 		collisionShapes.push_back(colShape);
-				
 		btScalar mass(50000);
-
-		// create the initial transform
 		btTransform startTransform;
 		startTransform.setIdentity();
 		startTransform.setOrigin(btVector3(0, 3, 0));// 10 1 10
 		startTransform.setRotation(btQuaternion(0, 0, 0, mass));
-
-
 		bool isDynamic = (mass != 0.f);
-
-		// calculate the local inertia
 		btVector3 localInertia(100, 0, 100);
-		// objects of infinite mass can't
-		// move or rotate
+		// objects of infinite mass can't move or rotate
 		if (isDynamic)
 			colShape->calculateLocalInertia(mass, localInertia);
-
 		//btDefaultMotionState* myMotionState = new btDefaultMotionState(btTransform(btQuaternion(0, 0, 0, mass), btVector3(0, 3, 0)));
 
-		// ? create the motion state from the initial transform
+		// create the motion state from the initial transform
 		btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
-		
-		// create the rigid body construction
-		// info using the mass, motion state and shape
+
+		// create the rigid body construction info using the mass, motion state and shape
 		btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
 		rbInfo.m_restitution = 1.0f;
-		
+
 		// create the rigid body
 		bodyBatter = new btRigidBody(rbInfo);
 
 		dynamicsWorld->addRigidBody(bodyBatter);
 	}
-
-
-
-	glm::mat4 view = camera.GetViewMatrix();
-	glm::mat4 perspective = camera.GetProjectionMatrix();
-
 
 	glfwSwapInterval(1);
 	//Rendering
@@ -444,98 +495,83 @@ int main(int argc, char* argv[])
 
 	auto lastFrameTime = glfwGetTime();
 
-
-	/////////!!!!!!!!!!!!!!! TEST !!!!!!!!!!!!!!!!!!!!
-	////// Declare a vector to store balls
-	//std::vector<Ball> balls;
-
-	////// Create the first ball
-	//Object sphere2(pathSphere);
-	//sphere2.makeObject(shader);
-	//newBall(glm::vec3(-4, 6.75, -3.5), dynamicsWorld);
-	//balls.push_back(Ball(glm::vec3(-4, 6.75, -3.5), dynamicsWorld));
-
-	//// Create another ball with the same properties
-	//Object sphere3(pathSphere);
-	//sphere3.makeObject(shader);
-	//balls.push_back(Ball(glm::vec3(-4, 9.75, -3.5), dynamicsWorld));
-
-		//// TEST !!!!!!!!!!!!!!!!!!!!!!
-
-	//int newparticles = (int)(10 * 10000.0);
-	//if (newparticles > (int)(0.016f * 10000.0))
-	//	newparticles = (int)(0.016f * 10000.0);
-
-	//int ParticlesCount = 0;
-	//for (int i = 0; i < MaxParticles; i++) {
-	//	int delta = 10;
-	//	Particle& p = ParticlesContainer[i]; // shortcut
-
-	//	if (p.life > 0.0f) {
-
-	//		// Decrease life
-	//		p.life -= 10;
-	//		if (p.life > 0.0f) {
-
-	//			// Simulate simple physics : gravity only, no collisions
-	//			p.speed += glm::vec3(0.0f, -9.81f, 0.0f) * (float)delta* 0.5f;
-	//			p.pos += p.speed * (float)delta;
-	//			p.cameradistance = glm::length2(p.pos - CameraPosition);
-	//			//ParticlesContainer[i].pos += glm::vec3(0.0f,10.0f, 0.0f) * (float)delta;
-
-	//			// Fill the GPU buffer
-	//			g_particule_position_size_data[4 * ParticlesCount + 0] = p.pos.x;
-	//			g_particule_position_size_data[4 * ParticlesCount + 1] = p.pos.y;
-	//			g_particule_position_size_data[4 * ParticlesCount + 2] = p.pos.z;
-
-	//			g_particule_position_size_data[4 * ParticlesCount + 3] = p.size;
-
-	//			g_particule_color_data[4 * ParticlesCount + 0] = p.r;
-	//			g_particule_color_data[4 * ParticlesCount + 1] = p.g;
-	//			g_particule_color_data[4 * ParticlesCount + 2] = p.b;
-	//			g_particule_color_data[4 * ParticlesCount + 3] = p.a;
-
-	//		}
-	//		else {
-	//			// Particles that just died will be put at the end of the buffer in SortParticles();
-	//			p.cameradistance = -1.0f;
-	//		}
-
-	//		ParticlesCount++;
-
-	//	}
-	//}
-
-	////////// TEST !!!!!!!!!!!!
+	std::vector<Particle> ballTrailParticles;
+	btVector3 initialVelocity = bodySphere1->getLinearVelocity();
+	btVector3 previousVelocity = initialVelocity;
+	float speedChangeThreshold = 2.0f;
 
 
 	while (!glfwWindowShouldClose(window)) {
 		processInput(window);
-		
-		glfwPollEvents();
-		
-		double now = glfwGetTime();
-		//3. Ask bullet to do the simulation
-		dynamicsWorld->stepSimulation(now -lastFrameTime, 10);
 
-		//4. Get the model matrice for the object (sphere) from bullet
+		glfwPollEvents();
+
+		double now = glfwGetTime();
+
+		//3. Ask bullet to do the simulation
+		dynamicsWorld->stepSimulation(now - lastFrameTime, 10);
+
+		// Ball change
+		if (giveImpulseV && (previousStateV == false)) {
+			ballCount += 1;
+			transitionBall = true;
+			previousStateV = true;
+		} else if (!giveImpulseV) {
+			previousStateV = false;
+		}
+
+
+		// Which ball to process
+		btRigidBody* bodySphere;
+		if (ballCount == 1) {
+			bodySphere = bodySphere1;
+		} else if (ballCount == 2) {
+			bodySphere = bodySphere2;
+		} else {
+			bodySphere = bodySphere3;
+		}
+
+
+		if (transitionBall) {
+			// Move the ball to a specific position
+			btTransform newTransform;
+			newTransform.setIdentity();
+			newTransform.setOrigin(btVector3(-4, 5, -3.5));
+			bodySphere->getMotionState()->setWorldTransform(newTransform);
+			bodySphere->setWorldTransform(newTransform);
+			btVector3 previousVelocity = initialVelocity;
+			ballTrailParticles.clear(); // Clear the trail particles
+			ballExceededThreshold = false;
+			transitionBall = false;
+		}
+
+		// Compare the actual speed with the previous one
+		btVector3 currentVelocity = bodySphere->getLinearVelocity();
+		float speedChange = (currentVelocity - previousVelocity).length();
+
+		// Check if speed is above the threshold
+		if (speedChange > speedChangeThreshold) {
+			ballExceededThreshold = true;
+		} else {
+			previousVelocity = currentVelocity;   // Update the speed
+		}
+
+		//4. Get the model matrice for the object (batter) from bullet
 
 		btTransform transform2;
 		bodyBatter->getMotionState()->getWorldTransform(transform2);
 		transform2.getOpenGLMatrix(glm::value_ptr(model2));
 
-		bodyBatter->setLinearVelocity(btVector3(0, 0, 0));// (-1, 0.3, -1);
+		bodyBatter->setLinearVelocity(btVector3(0, 0, 0));
 
 		// Batter movements
 		if (giveImpulseB || giveImpulseN) {
 			if (giveImpulseB) {
 				bodyBatter->setAngularVelocity(btVector3(0, -15, 0));
-			}
-			else {
+			} else {
 				bodyBatter->setAngularVelocity(btVector3(0, 5, 0));
 			}
-		}
-		else {
+		} else {
 			bodyBatter->setAngularVelocity(btVector3(0, 0, 0));
 		}
 
@@ -544,42 +580,119 @@ int main(int argc, char* argv[])
 		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+
 		view = camera.GetViewMatrix();
-		// Use the shader Class to send the uniform
-		shader.use(); // not in the tests
-		shader.setMatrix4("V", view);
-		shader.setMatrix4("P", perspective);
 
-		///// !!!!!!!!!!!!!!!!!!!!!!!!!!TESTS !!!!!!!!!!!!!!!!!!!!!!!!
-		//
-		// Update and draw each ball
-		//for (auto& ball : balls) {
-		//	int i = 0;
-		//	if (i == 0) {
-		//		ball.update(sphere2);
-		//	}
-		//	else {
-		//		ball.update(sphere3);
-		//	}
-		//	ball.draw(shader);
-		//}
-
-		
-		// Get the model matrice for the object (sphere) from bullet
+		// Old code for a visible ball
+/*		// Get the model matrice for the object (sphere) from bullet
 		btTransform transform;
 		bodySphere->getMotionState()->getWorldTransform(transform);
 		transform.getOpenGLMatrix(glm::value_ptr(model));
-
-		// draw sphere
 		shader.setMatrix4("M", model);
 		sphere.draw();
+*/
+
+		// Use the shader Class to send the uniform
+		shader2.use();
+		btTransform transform;
+		bodySphere->getMotionState()->getWorldTransform(transform);
+		transform.getOpenGLMatrix(glm::value_ptr(model));
+		shader2.setMatrix4("M", model);
+		shader2.setMatrix4("itM", inverseModel);
+		shader2.setMatrix4("V", view);
+		shader2.setMatrix4("P", perspective);
+		shader2.setVector3f("u_view_pos", camera.Position);
+
+		auto delta = light_pos + glm::vec3(0.0, 0.0, 2 * std::sin(now));
+
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
+		cubeMapShader.setInteger("cubemapTexture", 0);
+
+		glDepthFunc(GL_LEQUAL);
+		glm::vec3 ballPosition2(
+			transform.getOrigin().getX(),
+			transform.getOrigin().getY(),
+			transform.getOrigin().getZ()
+		);
+		std::cout << "\n ball" << ballCount << " Position " << ballPosition2.x << " " << ballPosition2.y << " " << ballPosition2.z;
+		sphere.draw(); 
+
+
+
+		shader.use();
+		shader.setMatrix4("V", view);
+		shader.setMatrix4("P", perspective);
+
+		if (ballExceededThreshold) {
+			btTransform transform;
+			bodySphere->getMotionState()->getWorldTransform(transform);
+			glm::vec3 ballPosition(
+				transform.getOrigin().getX(),
+				transform.getOrigin().getY(),
+				transform.getOrigin().getZ()
+			);
+
+			// Add a new particle to the trail
+			Particle newParticle;
+			newParticle.position = (ballPosition);
+			newParticle.color = glm::vec3(0.0f, 0.0f, 1.0f);
+			newParticle.velocity = glm::vec3(
+				0.01f, -0.01f, 0.01f
+			);
+			newParticle.lifetime = initialLifetime;
+			ballTrailParticles.push_back(newParticle);
+		};
+
+
+		///*
+		//// draw meteorites
+		//for (unsigned int i = 0; i < amount; i++)
+		//{
+		//	shader.setMatrix4("M", modelMatrices[i]);
+		//	sphere.draw();
+		//}
+		//*/
+
+
+/*		shaderParticle.use();
+		shaderParticle.setMatrix4("V", view);
+		shaderParticle.setMatrix4("P", perspective);
+*/
+		for (auto& particle : ballTrailParticles) {
+
+			particle.lifetime -= deltaTime2;
+			particle.position += particle.velocity * deltaTime2; // Update position
+			particle.velocity.y -= 9.81 * deltaTime2/1000; // Apply gravity
+
+			// Change color ------ NOT WORKING ------
+			float colorChangeFactor = particle.lifetime / initialLifetime;  // Value between 0 and 1
+			particle.color *= colorChangeFactor;  // Diminish the color over time
+
+			glm::mat4 model = glm::translate(glm::mat4(1.0f), particle.position);
+			shader.setMatrix4("M", model);
+			//sphere.draw();
+			glPointSize(1.0f);
+			glDrawArrays(GL_POINTS, 0, 100);
+
+			if (particle.lifetime <= 0.0f) {
+				ballTrailParticles.erase(ballTrailParticles.begin(), ballTrailParticles.begin() + 1);
+			}
+
+		}
+
+		//glDrawArrays(GL_POINTS, 0, ballTrailParticles.size());
+		
+
 
 		// draw batter
 		shader.setMatrix4("M", model2);
 		cube2.draw();
 
 		// draw ground
-		shader.setMatrix4("M", modelGround);
+		shader2.use();
+		shader2.setMatrix4("M", modelGround);
 		plane.draw();
 
 		// draw cubemap
@@ -587,9 +700,6 @@ int main(int argc, char* argv[])
 		cubeMapShader.setMatrix4("V", view);
 		cubeMapShader.setMatrix4("P", perspective);
 		cubeMapShader.setInteger("cubemapTexture", 0);
-
-		cubeMap.draw();
-		glDepthFunc(GL_LESS);
 
 		glDepthFunc(GL_LEQUAL);  // Set depth function to less than or equal for cubemap
 		cubeMap.draw();
@@ -605,8 +715,7 @@ int main(int argc, char* argv[])
 	{
 		btCollisionObject* obj = dynamicsWorld->getCollisionObjectArray()[i];
 		btRigidBody* body = btRigidBody::upcast(obj);
-		if (body && body->getMotionState())
-		{
+		if (body && body->getMotionState())	{
 			delete body->getMotionState();
 		}
 		dynamicsWorld->removeCollisionObject(obj);
@@ -675,6 +784,12 @@ void processInput(GLFWwindow* window) {
 	if (glfwGetKey(window, GLFW_KEY_B) != GLFW_PRESS)
 		giveImpulseB = false;
 
+	if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS)
+		giveImpulseV = true;
+	if (glfwGetKey(window, GLFW_KEY_V) != GLFW_PRESS)
+		giveImpulseV = false;
+
+
 }
 
 
@@ -696,4 +811,29 @@ void loadCubemapFace(const char* path, const GLenum& targetFace)
 		std::cout << reason << std::endl;
 	}
 	stbi_image_free(data);
+}
+
+btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position) {
+	btCollisionShape* colShape = new btSphereShape(btScalar(1.));
+	collisionShapes.push_back(colShape);
+
+	btTransform startTransform;
+	startTransform.setIdentity();
+
+	// Set the position
+	startTransform.setOrigin(position);
+
+	btVector3 localInertia(1, 1, 1);
+	if (mass != 0.f)
+		colShape->calculateLocalInertia(mass, localInertia);
+
+	btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
+	btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
+	rbInfo.m_friction = 1.f;
+	rbInfo.m_restitution = 1.0f;
+
+	btRigidBody* body = new btRigidBody(rbInfo);
+	dynamicsWorld->addRigidBody(body);
+
+	return body;
 }
