@@ -54,7 +54,7 @@ include_directories(3rdParty/glad/include/
 
 
 set(SOURCES_EX_08 "ex08.cpp" "camera.h" "shader.h" "object.h")
-set(SOURCES_Main "main.cpp" "camera.h" "shader.h" "object.h" "ball.h")
+set(SOURCES_Main "main.cpp" "camera.h" "shader.h" "object.h")
 
 
 #These commands are there to specify the path to the folder containing the object and textures files as macro
