@@ -1,5 +1,8 @@
 #include<iostream>
-
+// TODO :
+// Framebuffer
+// Shadows
+// Optional : geometry shader
 //include glad before GLFW to avoid header conflict or define "#define GLFW_INCLUDE_NONE"
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -14,7 +17,6 @@
 #include "camera.h"
 #include "shader.h"
 #include "object.h"
-#include "ball.h"
 
 
 #include <btBulletCollisionCommon.h>
@@ -31,7 +33,6 @@ bool giveImpulseV = false;
 bool ballExceededThreshold = false;
 int initialLifetime = 10;
 float deltaTime2 = 0;
-int ballCount = 1;
 bool transitionBall = false;
 bool previousStateV = false;
 btAlignedObjectArray<btCollisionShape*> collisionShapes;
@@ -40,7 +41,6 @@ btAlignedObjectArray<btCollisionShape*> collisionShapes;
 struct Particle {
 	glm::vec3 position;
 	glm::vec3 velocity;  // Initial velocity
-	glm::vec3 color;
 	float lifetime;  // Time until the particle disappears
 };
 
@@ -103,47 +103,12 @@ void APIENTRY glDebugOutput(GLenum source,
 }
 #endif
 
-Camera camera(glm::vec3(0.0, 1.0, 10));
+Camera camera(glm::vec3(0.0, 5.0, 15));
 
 
 int main(int argc, char* argv[])
 {
-	srand(static_cast<unsigned int>(glfwGetTime())); // initialize random seed
-	// asteroids
-	/*unsigned int amount = 10;
-	glm::mat4* modelMatrices;
-	modelMatrices = new glm::mat4[amount];
-	srand(static_cast<unsigned int>(glfwGetTime())); // initialize random seed
-	float radius = 5.0;
-	float offset = 2.5f;
-	for (unsigned int i = 0; i < amount; i++)
-	{
-		glm::mat4 model = glm::mat4(1.0f);
-		// 1. translation: displace along circle with 'radius' in range [-offset, offset]
-		float angle = (float)i / (float)amount * 360.0f;
-		float displacement = (rand() % (int)(2 * offset * 10)) / 10.0f - offset;
-		float x = sin(angle) * radius + displacement;
-		displacement = (rand() % (int)(2 * offset * 10)) / 10.0f - offset;
-		float y = displacement * 0.9f; // keep height of asteroid field smaller compared to width of x and z
-		displacement = (rand() % (int)(2 * offset * 10)) / 10.0f - offset;
-		float z = cos(angle) * radius + displacement;
-		model = glm::translate(model, glm::vec3(x, y, z));
-
-		// 2. scale: Scale between 0.05 and 0.25f
-		//float scale = static_cast<float>((rand() % 20) / 100.0 + 0.05);
-		//model = glm::scale(model, glm::vec3(scale));
-
-		// 3. rotation: add random rotation around a (semi)randomly picked rotation axis vector
-		//float rotAngle = static_cast<float>((rand() % 360));
-		//model = glm::rotate(model, rotAngle, glm::vec3(0.4f, 0.6f, 0.8f));
-
-		// 4. now add to list of matrices
-		modelMatrices[i] = model;
-	}
-	*/
-
-
-	std::cout << "Welcome to the bullet demo " << std::endl;
+	std::cout << "Welcome to our projet baseball demo " << std::endl;
 	std::cout << " This code is an example of the bullet library \n";
 
 	//Create the OpenGL context 
@@ -257,26 +222,6 @@ int main(int argc, char* argv[])
 		"} \n";
 
 
-	/*	const std::string particleVertexShaderSource = "#version 330 core\n"
-			"in vec3 position; \n"
-			"in vec3 color; \n"  // Add color attribute
-			"out vec4 v_col; \n"
-			"uniform mat4 M; \n"
-			"uniform mat4 V; \n"
-			"uniform mat4 P; \n"
-			"void main(){ \n"
-			"    gl_Position = P * V * M * vec4(position, 1);\n"
-			"    v_col = vec4(color, 1.0); \n"
-			"} \n";
-
-		const std::string particleFragmentShaderSource = "#version 330 core\n"
-			"out vec4 FragColor;"
-			"in vec4 v_col; \n"
-			"void main() { \n"
-			"    FragColor = v_col; \n"
-			"} \n";
-	*/
-
 
 	const std::string sourceVCubeMap = "#version 330 core\n"
 		"in vec3 position; \n"
@@ -310,8 +255,6 @@ int main(int argc, char* argv[])
 
 
 	Shader shader(sourceV, sourceF);
-	/*	Shader shaderParticle(particleVertexShaderSource, particleFragmentShaderSource);
-	*/
 	Shader shader2(sourceV2, sourceF2);
 	Shader cubeMapShader = Shader(sourceVCubeMap, sourceFCubeMap);
 
@@ -347,7 +290,7 @@ int main(int argc, char* argv[])
 			deltaFrame = 0;
 			std::cout << "\r FPS: " << fpsCount;
 		}
-		};
+	};
 
 
 
@@ -409,7 +352,7 @@ int main(int argc, char* argv[])
 
 	//2.a We need one for the ground
 	{
-		btCollisionShape* groundShape = new btBoxShape(btVector3(btScalar(50.), btScalar(50.), btScalar(50.)));
+		btCollisionShape* groundShape = new btBoxShape(btVector3(btScalar(100.), btScalar(50.), btScalar(100.)));
 		collisionShapes.push_back(groundShape);
 		btTransform groundTransform;
 		groundTransform.setIdentity();
@@ -426,9 +369,7 @@ int main(int argc, char* argv[])
 		dynamicsWorld->addRigidBody(body);
 	}
 	//2.b 3 other ones are for the 3 balls of the game
-	btRigidBody* bodySphere1 = createSphere(dynamicsWorld, 1.0, btVector3(-4, 5, -3.5));
-	btRigidBody* bodySphere2 = createSphere(dynamicsWorld, 1.0, btVector3(-4, 500, -3.5));
-	btRigidBody* bodySphere3 = createSphere(dynamicsWorld, 1.0, btVector3(-4, 1000, -3.5));
+	btRigidBody* bodySphere = createSphere(dynamicsWorld, 1.0, btVector3(-4, 10, -3.5));
 
 	
 	//3.b Another one for the batter
@@ -496,12 +437,13 @@ int main(int argc, char* argv[])
 	auto lastFrameTime = glfwGetTime();
 
 	std::vector<Particle> ballTrailParticles;
-	btVector3 initialVelocity = bodySphere1->getLinearVelocity();
+	btVector3 initialVelocity = bodySphere->getLinearVelocity();
 	btVector3 previousVelocity = initialVelocity;
 	float speedChangeThreshold = 2.0f;
 
 
 	while (!glfwWindowShouldClose(window)) {
+
 		processInput(window);
 
 		glfwPollEvents();
@@ -513,7 +455,6 @@ int main(int argc, char* argv[])
 
 		// Ball change
 		if (giveImpulseV && (previousStateV == false)) {
-			ballCount += 1;
 			transitionBall = true;
 			previousStateV = true;
 		} else if (!giveImpulseV) {
@@ -521,26 +462,18 @@ int main(int argc, char* argv[])
 		}
 
 
-		// Which ball to process
-		btRigidBody* bodySphere;
-		if (ballCount == 1) {
-			bodySphere = bodySphere1;
-		} else if (ballCount == 2) {
-			bodySphere = bodySphere2;
-		} else {
-			bodySphere = bodySphere3;
-		}
-
-
 		if (transitionBall) {
 			// Move the ball to a specific position
 			btTransform newTransform;
 			newTransform.setIdentity();
-			newTransform.setOrigin(btVector3(-4, 5, -3.5));
+			newTransform.setOrigin(btVector3(-4, 10, -3.5));
 			bodySphere->getMotionState()->setWorldTransform(newTransform);
 			bodySphere->setWorldTransform(newTransform);
+			bodySphere->setLinearVelocity(btVector3(0, 0, 0));
+			bodySphere->setAngularVelocity(btVector3(0, 0, 0));
+
 			btVector3 previousVelocity = initialVelocity;
-			ballTrailParticles.clear(); // Clear the trail particles
+			ballTrailParticles.clear(); 
 			ballExceededThreshold = false;
 			transitionBall = false;
 		}
@@ -568,8 +501,10 @@ int main(int argc, char* argv[])
 		if (giveImpulseB || giveImpulseN) {
 			if (giveImpulseB) {
 				bodyBatter->setAngularVelocity(btVector3(0, -15, 0));
+				giveImpulseB = false;
 			} else {
 				bodyBatter->setAngularVelocity(btVector3(0, 5, 0));
+				giveImpulseN = false;
 			}
 		} else {
 			bodyBatter->setAngularVelocity(btVector3(0, 0, 0));
@@ -582,15 +517,6 @@ int main(int argc, char* argv[])
 
 
 		view = camera.GetViewMatrix();
-
-		// Old code for a visible ball
-/*		// Get the model matrice for the object (sphere) from bullet
-		btTransform transform;
-		bodySphere->getMotionState()->getWorldTransform(transform);
-		transform.getOpenGLMatrix(glm::value_ptr(model));
-		shader.setMatrix4("M", model);
-		sphere.draw();
-*/
 
 		// Use the shader Class to send the uniform
 		shader2.use();
@@ -616,7 +542,6 @@ int main(int argc, char* argv[])
 			transform.getOrigin().getY(),
 			transform.getOrigin().getZ()
 		);
-		std::cout << "\n ball" << ballCount << " Position " << ballPosition2.x << " " << ballPosition2.y << " " << ballPosition2.z;
 		sphere.draw(); 
 
 
@@ -637,38 +562,18 @@ int main(int argc, char* argv[])
 			// Add a new particle to the trail
 			Particle newParticle;
 			newParticle.position = (ballPosition);
-			newParticle.color = glm::vec3(0.0f, 0.0f, 1.0f);
-			newParticle.velocity = glm::vec3(
-				0.01f, -0.01f, 0.01f
-			);
+			newParticle.velocity = glm::vec3(0.01f, -0.01f, 0.01f);
 			newParticle.lifetime = initialLifetime;
 			ballTrailParticles.push_back(newParticle);
 		};
 
 
-		///*
-		//// draw meteorites
-		//for (unsigned int i = 0; i < amount; i++)
-		//{
-		//	shader.setMatrix4("M", modelMatrices[i]);
-		//	sphere.draw();
-		//}
-		//*/
 
-
-/*		shaderParticle.use();
-		shaderParticle.setMatrix4("V", view);
-		shaderParticle.setMatrix4("P", perspective);
-*/
 		for (auto& particle : ballTrailParticles) {
 
 			particle.lifetime -= deltaTime2;
 			particle.position += particle.velocity * deltaTime2; // Update position
 			particle.velocity.y -= 9.81 * deltaTime2/1000; // Apply gravity
-
-			// Change color ------ NOT WORKING ------
-			float colorChangeFactor = particle.lifetime / initialLifetime;  // Value between 0 and 1
-			particle.color *= colorChangeFactor;  // Diminish the color over time
 
 			glm::mat4 model = glm::translate(glm::mat4(1.0f), particle.position);
 			shader.setMatrix4("M", model);
@@ -680,10 +585,7 @@ int main(int argc, char* argv[])
 				ballTrailParticles.erase(ballTrailParticles.begin(), ballTrailParticles.begin() + 1);
 			}
 
-		}
-
-		//glDrawArrays(GL_POINTS, 0, ballTrailParticles.size());
-		
+		}		
 
 
 		// draw batter
@@ -691,8 +593,7 @@ int main(int argc, char* argv[])
 		cube2.draw();
 
 		// draw ground
-		shader2.use();
-		shader2.setMatrix4("M", modelGround);
+		shader.setMatrix4("M", modelGround);
 		plane.draw();
 
 		// draw cubemap
@@ -830,7 +731,7 @@ btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const b
 	btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
 	btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
 	rbInfo.m_friction = 1.f;
-	rbInfo.m_restitution = 1.0f;
+	rbInfo.m_restitution = 0.9f;
 
 	btRigidBody* body = new btRigidBody(rbInfo);
 	dynamicsWorld->addRigidBody(body);
