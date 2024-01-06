@@ -1,5 +1,5 @@
 #include<iostream>
-// TODO :
+// TODO 
 // Framebuffer
 // Shadows
 // Optional : geometry shader
@@ -25,8 +25,8 @@
 #include <map>
 
 
-const int width = 1500;
-const int height = 1000;
+int width = 1500;
+int height = 1000;
 bool giveImpulseB = false;
 bool giveImpulseN = false;
 bool giveImpulseV = false;
@@ -36,6 +36,80 @@ float deltaTime2 = 0;
 bool transitionBall = false;
 bool previousStateV = false;
 btAlignedObjectArray<btCollisionShape*> collisionShapes;
+
+/*
+// Declare framebuffer ID and texture ID for secondary view
+GLuint secondaryFramebuffer;
+GLuint secondaryColorTexture;
+
+// Initialize the secondary framebuffer
+void initSecondaryFramebuffer() {
+	glGenFramebuffers(1, &secondaryFramebuffer);
+	glBindFramebuffer(GL_FRAMEBUFFER, secondaryFramebuffer);
+
+	// Create a color texture for the secondary view
+	glGenTextures(1, &secondaryColorTexture);
+	glBindTexture(GL_TEXTURE_2D, secondaryColorTexture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width / 2, height / 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	// Attach the color texture to the framebuffer
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, secondaryColorTexture, 0);
+
+	// Check framebuffer completeness
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+		std::cerr << "Secondary Framebuffer is not complete!" << std::endl;
+	}
+
+	// Unbind framebuffer
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+
+
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+	// Update the viewport for the main framebuffer
+	glViewport(0, 0, width, height);
+
+	// Update the viewport for the secondary framebuffer (bottom right corner)
+	glViewport(width / 2, 0, width / 2, height / 2);
+}
+
+
+GLuint framebuffer;
+
+void initFramebuffer() {
+	// Generate framebuffer
+	glGenFramebuffers(1, &framebuffer);
+	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+	// Create a color attachment texture
+	GLuint textureColorBuffer;
+	glGenTextures(1, &textureColorBuffer);
+	glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, screenWidth, screenHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorBuffer, 0);
+
+	// Create a renderbuffer object for depth and stencil attachment
+	GLuint rbo;
+	glGenRenderbuffers(1, &rbo);
+	glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, screenWidth, screenHeight);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
+
+	// Check if framebuffer is complete
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+		std::cerr << "Framebuffer is not complete!" << std::endl;
+	}
+
+	// Unbind framebuffer
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+*/
 
 
 struct Particle {
@@ -442,6 +516,48 @@ int main(int argc, char* argv[])
 	float speedChangeThreshold = 2.0f;
 
 
+
+	// Particle object
+	// 1. Triangle vertices
+	const float positionsData[9] = {
+		// vertices
+		-1.0, -1.0, 0.0,
+		1.0, -1.0, 0.0,
+		0.0, 1.0, 0.0,
+	};
+
+	//Create the buffer
+	// 2. Your code: make a VBO (buffer) and a VAO (vertex buffer object) and send the data from the positionData to the GPU
+	GLuint VBO, VAO;
+	//generate the buffer and the vertex array
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO);
+
+	//define VBO and VAO as active buffer and active vertex array
+	glBindVertexArray(VAO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(positionsData), positionsData, GL_STATIC_DRAW);
+
+	//Specify the vertex attributes
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0);
+
+	//desactive the buffer
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+	
+
+
+	/*
+	// Initialization
+	initFramebuffer();
+	initSecondaryFramebuffer();  // Call this once during initialization
+
+	// Set the callback function for window resize
+	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+	*/
+
+
 	while (!glfwWindowShouldClose(window)) {
 
 		processInput(window);
@@ -450,6 +566,13 @@ int main(int argc, char* argv[])
 
 		double now = glfwGetTime();
 
+
+		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		glBindVertexArray(VAO);
+
+
 		//3. Ask bullet to do the simulation
 		dynamicsWorld->stepSimulation(now - lastFrameTime, 10);
 
@@ -457,7 +580,8 @@ int main(int argc, char* argv[])
 		if (giveImpulseV && (previousStateV == false)) {
 			transitionBall = true;
 			previousStateV = true;
-		} else if (!giveImpulseV) {
+		}
+		else if (!giveImpulseV) {
 			previousStateV = false;
 		}
 
@@ -473,7 +597,7 @@ int main(int argc, char* argv[])
 			bodySphere->setAngularVelocity(btVector3(0, 0, 0));
 
 			btVector3 previousVelocity = initialVelocity;
-			ballTrailParticles.clear(); 
+			ballTrailParticles.clear();
 			ballExceededThreshold = false;
 			transitionBall = false;
 		}
@@ -485,7 +609,8 @@ int main(int argc, char* argv[])
 		// Check if speed is above the threshold
 		if (speedChange > speedChangeThreshold) {
 			ballExceededThreshold = true;
-		} else {
+		}
+		else {
 			previousVelocity = currentVelocity;   // Update the speed
 		}
 
@@ -502,11 +627,13 @@ int main(int argc, char* argv[])
 			if (giveImpulseB) {
 				bodyBatter->setAngularVelocity(btVector3(0, -15, 0));
 				giveImpulseB = false;
-			} else {
+			}
+			else {
 				bodyBatter->setAngularVelocity(btVector3(0, 5, 0));
 				giveImpulseN = false;
 			}
-		} else {
+		}
+		else {
 			bodyBatter->setAngularVelocity(btVector3(0, 0, 0));
 		}
 
@@ -536,13 +663,12 @@ int main(int argc, char* argv[])
 		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
 		cubeMapShader.setInteger("cubemapTexture", 0);
 
-		glDepthFunc(GL_LEQUAL);
 		glm::vec3 ballPosition2(
 			transform.getOrigin().getX(),
 			transform.getOrigin().getY(),
 			transform.getOrigin().getZ()
 		);
-		sphere.draw(); 
+		sphere.draw();
 
 
 
@@ -573,19 +699,17 @@ int main(int argc, char* argv[])
 
 			particle.lifetime -= deltaTime2;
 			particle.position += particle.velocity * deltaTime2; // Update position
-			particle.velocity.y -= 9.81 * deltaTime2/1000; // Apply gravity
+			particle.velocity.y -= 9.81 * deltaTime2 / 1000; // Apply gravity
 
 			glm::mat4 model = glm::translate(glm::mat4(1.0f), particle.position);
 			shader.setMatrix4("M", model);
-			//sphere.draw();
-			glPointSize(1.0f);
-			glDrawArrays(GL_POINTS, 0, 100);
+			glDrawArrays(GL_TRIANGLES, 0, 30);
 
 			if (particle.lifetime <= 0.0f) {
 				ballTrailParticles.erase(ballTrailParticles.begin(), ballTrailParticles.begin() + 1);
 			}
 
-		}		
+		}
 
 
 		// draw batter
@@ -609,6 +733,27 @@ int main(int argc, char* argv[])
 		lastFrameTime = now;
 		glfwSwapBuffers(window);
 	}
+		/*
+		// Render to the secondary framebuffer
+		glBindFramebuffer(GL_FRAMEBUFFER, secondaryFramebuffer);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glViewport(width / 2, 0, width / 2, height / 2);
+
+		// Set up the secondary camera (same position or orientation as the main camera)
+		view = camera.GetViewMatrix();  // Use the same camera
+
+		// Enable a shader for the black and white effect
+		shader.use();
+
+		// Pass necessary uniforms to the shader, if required
+
+		// Render the scene 
+
+		// Switch back to the main framebuffer
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glViewport(0, 0, width, height);
+		*/
+
 
 	//5. Clean up 
 	//remove the rigidbodies from the dynamics world and delete them
