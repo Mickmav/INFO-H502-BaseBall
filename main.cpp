@@ -52,6 +52,7 @@ std::vector<Particle> ballTrailParticles;
 btAlignedObjectArray<btCollisionShape*> collisionShapes;
 
 btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position);
+btRigidBody* createBatter(btDynamicsWorld* dynamicsWorld);
 btRigidBody* createPlaneRigidBody(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position, const btVector3& size);
 
 void initMirrorFramebuffer();
@@ -552,15 +553,54 @@ int main(int argc, char* argv[])
 		};
 
 
-	glm::vec3 light_pos(-1.0f, 15.0f, -5.0f);
 
-	//glm::vec3 light_pos = glm::vec3(1.0, 2.0, 1.5);
+	//1. Create bullet world 
+
+	///-----initialization_start-----
+	///collision configuration contains default setup for memory, collision setup. Advanced users can create their own configuration.
+	btDefaultCollisionConfiguration* collisionConfiguration = new btDefaultCollisionConfiguration();
+	///use the default collision dispatcher. For parallel processing you can use a diffent dispatcher (see Extras/BulletMultiThreaded)
+	btCollisionDispatcher* dispatcher = new btCollisionDispatcher(collisionConfiguration);
+	///btDbvtBroadphase is a good general purpose broadphase. You can also try out btAxis3Sweep.
+	btBroadphaseInterface* overlappingPairCache = new btDbvtBroadphase();
+	///the default constraint solver. For parallel processing you can use a different solver (see Extras/BulletMultiThreaded)
+	btSequentialImpulseConstraintSolver* solver = new btSequentialImpulseConstraintSolver;
+	//Finally create the world
+	btDiscreteDynamicsWorld* dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, overlappingPairCache, solver, collisionConfiguration);
+
+	dynamicsWorld->setGravity(btVector3(0, -1, 0));
+
+
+	//2. Create the collisions shapes
+
+	// Ball
 	glm::mat4 model = glm::mat4(1.0);
-	model = glm::translate(model, glm::vec3(0.0, 0.0, -2.0));
-	model = glm::scale(model, glm::vec3(0.5, 0.5, 0.5));
+	model = glm::translate(model, glm::vec3(-4, 10, -3.5));
+	btRigidBody* bodySphere = createSphere(dynamicsWorld, 1.0, btVector3(-4, 10, -3.5));
 
+	// Batter 
+	glm::mat4 model2 = glm::mat4(1.0);
+	model2 = glm::translate(model2, glm::vec3(0, 5, 0));
+	model2 = glm::scale(model2, glm::vec3(5, 0.1, 3));
+	btRigidBody* bodyBatter = createBatter(dynamicsWorld);
+
+	// Ground
+	glm::mat4 modelGround = glm::mat4(1.0);
+	modelGround = glm::translate(modelGround, glm::vec3(0, 0, 0));
+	modelGround = glm::scale(modelGround, glm::vec3(50,0.001, 50));
+	btRigidBody* bodyPlaneGround = createPlaneRigidBody(dynamicsWorld, 0, btVector3(0, 0, 0), btVector3(50, 0.001, 50));
+
+	// Mirror
+	glm::mat4 modelGround2 = glm::mat4(1.0);
+	modelGround2 = glm::translate(modelGround2, glm::vec3(0, 7, 16));
+	modelGround2 = glm::scale(modelGround2, glm::vec3(.5, 2, 2));//(-7, 15, 15));
+	btRigidBody* bodyMirror2 = createPlaneRigidBody(dynamicsWorld, 0, btVector3(0, 7, 16), btVector3(1, 1, 1));;
+
+
+	glm::vec3 light_pos(-1.0f, 15.0f, -5.0f);	// Other position : (1.0, 2.0, 1.5);
+
+	// Initialisation of matrices
 	glm::mat4 inverseModel = glm::transpose(glm::inverse(model));
-
 	glm::mat4 view = camera.GetViewMatrix();
 	glm::mat4 perspective = camera.GetProjectionMatrix();
 
@@ -589,74 +629,8 @@ int main(int argc, char* argv[])
 
 
 
-	//1. Create bullet world 
-
-	///-----initialization_start-----
-	///collision configuration contains default setup for memory, collision setup. Advanced users can create their own configuration.
-	btDefaultCollisionConfiguration* collisionConfiguration = new btDefaultCollisionConfiguration();
-	///use the default collision dispatcher. For parallel processing you can use a diffent dispatcher (see Extras/BulletMultiThreaded)
-	btCollisionDispatcher* dispatcher = new btCollisionDispatcher(collisionConfiguration);
-	///btDbvtBroadphase is a good general purpose broadphase. You can also try out btAxis3Sweep.
-	btBroadphaseInterface* overlappingPairCache = new btDbvtBroadphase();
-	///the default constraint solver. For parallel processing you can use a different solver (see Extras/BulletMultiThreaded)
-	btSequentialImpulseConstraintSolver* solver = new btSequentialImpulseConstraintSolver;
-	//Finally create the world
-	btDiscreteDynamicsWorld* dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, overlappingPairCache, solver, collisionConfiguration);
-
-	dynamicsWorld->setGravity(btVector3(0, -1, 0));
-
-
-	//2. Create the collisions shapes
-	glm::mat4 model2 = glm::mat4(2.0);
-
-	glm::mat4 modelGround = glm::mat4(1.0);
-	modelGround = glm::translate(modelGround, glm::vec3(0, 0, 0));
-	modelGround = glm::scale(modelGround, glm::vec3(50, 1, 50));
-
-	glm::mat4 modelGround2 = glm::mat4(1.0);
-	modelGround2 = glm::translate(modelGround2, glm::vec3(0, 7, 16));
-	modelGround2 = glm::scale(modelGround2, glm::vec3(.5, 2, 2));//(-7, 15, 15));
-
-	// One for the ground, one for the mirror
-	btRigidBody* bodyPlaneGround = createPlaneRigidBody(dynamicsWorld, 0, btVector3(0, 0, 0), btVector3(50, 1, 50));
-	btRigidBody* bodyMirror2 = createPlaneRigidBody(dynamicsWorld, 0, btVector3(0, 7, 16), btVector3(1, 1, 1));;
-
-
-	//2.b Another one are for the balls of the game
-	btRigidBody* bodySphere = createSphere(dynamicsWorld, 1.0, btVector3(-4, 10, -3.5));
-
-
-	//3.b Another one for the batter
-	btRigidBody* bodyBatter;
-	{
-		btCollisionShape* colShape = new btBoxShape(btVector3(btScalar(5.), btScalar(0.1), btScalar(3.)));
-		collisionShapes.push_back(colShape);
-		btScalar mass(50000);
-		btTransform startTransform;
-		startTransform.setIdentity();
-		startTransform.setOrigin(btVector3(0, 5, 0));
-		startTransform.setRotation(btQuaternion(0, 0, 0, mass));
-		bool isDynamic = (mass != 0.f);
-		btVector3 localInertia(100, 0, 100);
-		// objects of infinite mass can't move or rotate
-		if (isDynamic)
-			colShape->calculateLocalInertia(mass, localInertia);
-		//btDefaultMotionState* myMotionState = new btDefaultMotionState(btTransform(btQuaternion(0, 0, 0, mass), btVector3(0, 3, 0)));
-
-		// create the motion state from the initial transform
-		btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
-
-		// create the rigid body construction info using the mass, motion state and shape
-		btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
-		rbInfo.m_restitution = 1.0f;
-
-		// create the rigid body
-		bodyBatter = new btRigidBody(rbInfo);
-
-		dynamicsWorld->addRigidBody(bodyBatter);
-	}
-
-	// Cubemap initialisation
+	// Cubemap
+	// Initialisation
 	GLuint cubeMapTexture;
 	glGenTextures(1, &cubeMapTexture);
 	glActiveTexture(GL_TEXTURE0);
@@ -668,8 +642,6 @@ int main(int argc, char* argv[])
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-	//stbi_set_flip_vertically_on_load(true);
 
 	std::string pathToCubeMap = PATH_TO_TEXTURE "/cubemaps/yokohama3/";
 
@@ -690,7 +662,6 @@ int main(int argc, char* argv[])
 
 	initialVelocity = bodySphere->getLinearVelocity();
 	previousVelocity = initialVelocity;
-
 
 
 
@@ -723,7 +694,7 @@ int main(int argc, char* argv[])
 	glBindVertexArray(0);
 
 
-
+	// Shadows
 	// configure depth map FBO
 	const unsigned int SHADOW_WIDTH = 1024, SHADOW_HEIGHT = 1024;
 	unsigned int depthMapFBO;
@@ -736,8 +707,10 @@ int main(int argc, char* argv[])
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	float borderColor[] = { 1.0, 1.0, 1.0, 1.0 };
+	glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
 
 	// attach depth texture as FBO's depth buffer
 	glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
@@ -751,14 +724,6 @@ int main(int argc, char* argv[])
 	shadowshader.use();
 	shadowshader.setInt("diffuseTexture", 0);
 	shadowshader.setInt("shadowMap", 1);
-
-
-
-
-
-
-
-
 
 
 
@@ -842,7 +807,7 @@ int main(int argc, char* argv[])
 		// render depth of scene to texture (from light's perspective)
 		glm::mat4 lightProjection, lightView;
 		glm::mat4 lightSpaceMatrix;
-		float near_plane = 1.0f, far_plane = 50.5f;
+		float near_plane = 1.0f, far_plane = 25.5f;
 		lightProjection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
 		lightView = glm::lookAt(light_pos, glm::vec3(0.0f), glm::vec3(0.0, 1.0, 0.0));
 		lightSpaceMatrix = lightProjection * lightView;
@@ -876,7 +841,6 @@ int main(int argc, char* argv[])
 
 		
 		// Clear the scene
-		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glDepthFunc(GL_LESS);
 
@@ -1291,6 +1255,37 @@ btRigidBody* createPlaneRigidBody(btDynamicsWorld* dynamicsWorld, btScalar mass,
 
 	return body;
 }
+
+
+btRigidBody* createBatter(btDynamicsWorld* dynamicsWorld) {
+	btCollisionShape* colShape = new btBoxShape(btVector3(btScalar(5.), btScalar(0.1), btScalar(3.)));
+	collisionShapes.push_back(colShape);
+	btScalar mass(50000);
+	btTransform startTransform;
+	startTransform.setIdentity();
+	startTransform.setOrigin(btVector3(0, 5, 0));
+	startTransform.setRotation(btQuaternion(0, 0, 0, mass));
+	bool isDynamic = (mass != 0.f);
+	btVector3 localInertia(100, 0, 100);
+	// objects of infinite mass can't move or rotate
+	if (isDynamic)
+		colShape->calculateLocalInertia(mass, localInertia);
+
+	// create the motion state from the initial transform
+	btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
+
+	// create the rigid body construction info using the mass, motion state and shape
+	btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
+	rbInfo.m_restitution = 1.0f;
+
+	// create the rigid body
+	btRigidBody* bodyBatter = new btRigidBody(rbInfo);
+
+	dynamicsWorld->addRigidBody(bodyBatter);
+
+	return bodyBatter;
+	}
+
 
 void handleBallTransition(btRigidBody* bodySphere) {
 	if (giveImpulseV && (previousStateV == false)) {
