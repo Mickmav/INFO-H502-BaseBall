@@ -2,7 +2,6 @@
 // TODO 
 // Framebuffer
 // Shadows
-// Optional : geometry shader
 //include glad before GLFW to avoid header conflict or define "#define GLFW_INCLUDE_NONE"
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -27,15 +26,80 @@
 
 int width = 1500;
 int height = 1000;
+float deltaTime2 = 0;
+int initialLifetime = 10;
 bool giveImpulseB = false;
 bool giveImpulseN = false;
 bool giveImpulseV = false;
 bool ballExceededThreshold = false;
-int initialLifetime = 10;
-float deltaTime2 = 0;
 bool transitionBall = false;
 bool previousStateV = false;
+float speedChangeThreshold = 2.0f;
+btVector3 initialVelocity, previousVelocity;
+
+GLuint mirrorFramebuffer; // Variable globale pour le framebuffer du miroir
+GLuint mirrorColorBuffer; // Variable globale pour la texture couleur du miroir
+glm::vec3 mirrorPosition = glm::vec3(0.f, 7.f, 16.f); // Position du miroir
+
+
+struct Particle {
+	glm::vec3 position;
+	glm::vec3 velocity;  // Initial velocity
+	float lifetime;  // Time until the particle disappears
+};
+
+std::vector<Particle> ballTrailParticles;
 btAlignedObjectArray<btCollisionShape*> collisionShapes;
+
+btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position);
+btRigidBody* createPlaneRigidBody(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position, const btVector3& size);
+
+void initMirrorFramebuffer();
+unsigned int loadTexture(const char* path);
+
+void processInput(GLFWwindow* window);
+
+void handleBallTransition(btRigidBody* bodySphere);
+void updateBodyBatter(btRigidBody* bodyBatter);
+void handleThresholdForParticles(btRigidBody* bodySphere);
+
+void loadCubemapFace(const char* file, const GLenum& targetCube);
+
+
+
+
+void initMirrorFramebuffer() {
+	// Créer le framebuffer du miroir
+	glGenFramebuffers(1, &mirrorFramebuffer);
+	glBindFramebuffer(GL_FRAMEBUFFER, mirrorFramebuffer);
+
+	// Créer la texture couleur attachée au framebuffer
+	glGenTextures(1, &mirrorColorBuffer);
+	glBindTexture(GL_TEXTURE_2D, mirrorColorBuffer);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width/4, height/4, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	// Attacher la texture couleur au framebuffer
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mirrorColorBuffer, 0);
+
+	// Créer le tampon de profondeur attaché au framebuffer
+	//GLuint mirrorDepthBuffer;
+	//glGenRenderbuffers(1, &mirrorDepthBuffer);
+	//glBindRenderbuffer(GL_RENDERBUFFER, mirrorDepthBuffer);
+	////glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
+	//glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, mirrorDepthBuffer);
+
+	// Vérifier si le framebuffer est complet
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+		std::cout << "Erreur : Framebuffer du miroir non complet!" << std::endl;
+	}
+
+	// Réinitialiser le framebuffer par défaut
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+
 
 /*
 // Declare framebuffer ID and texture ID for secondary view
@@ -112,19 +176,7 @@ void initFramebuffer() {
 */
 
 
-struct Particle {
-	glm::vec3 position;
-	glm::vec3 velocity;  // Initial velocity
-	float lifetime;  // Time until the particle disappears
-};
 
-
-GLuint compileShader(std::string shaderCode, GLenum shaderType);
-GLuint compileProgram(GLuint vertexShader, GLuint fragmentShader);
-
-void processInput(GLFWwindow* window);
-void loadCubemapFace(const char* file, const GLenum& targetCube);
-btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position);
 
 
 
@@ -246,7 +298,7 @@ int main(int argc, char* argv[])
 
 	const std::string sourceV2 = "#version 330 core\n"
 		"in vec3 position; \n"
-		"in vec2 tex_coords; \n"
+		"in vec2 tex_coord; \n"
 		"in vec3 normal; \n"
 
 		"out vec3 v_frag_coord; \n"
@@ -296,10 +348,9 @@ int main(int argc, char* argv[])
 		"} \n";
 
 
-
 	const std::string sourceVCubeMap = "#version 330 core\n"
 		"in vec3 position; \n"
-		"in vec2 tex_coords; \n"
+		"in vec2 tex_coord; \n"
 		"in vec3 normal; \n"
 		"uniform mat4 V; \n"
 		"uniform mat4 P; \n"
@@ -327,26 +378,160 @@ int main(int argc, char* argv[])
 		"FragColor = texture(cubemapSampler,texCoord_v); \n"
 		"} \n";
 
+	const std::string sourceVShadowMap = "#version 330 core \n"
+		"layout (location = 0) in vec3 position;\n"
+		"layout (location = 1) in vec3 normal;\n"
+		"layout (location = 2) in vec2 tex_coord;\n"
+		"\n"
+		"out vec2 TexCoords;\n"
+		"\n"
+		"out VS_OUT {\n"
+		"    vec3 FragPos;\n"
+		"    vec3 Normal;\n"
+		"    vec2 TexCoords;\n"
+		"    vec4 FragPosLightSpace;\n"
+		"} vs_out;\n"
+		"\n"
+		"uniform mat4 projection;\n"
+		"uniform mat4 view;\n"
+		"uniform mat4 model;\n"
+		"uniform mat4 lightSpaceMatrix;\n"
+		"\n"
+		"void main()\n"
+		"{\n"
+		"    vs_out.FragPos =  vec3(model * vec4(position, 1.0));\n"
+		"    vs_out.Normal = transpose(inverse(mat3(model))) * normal;\n"
+		"    vs_out.TexCoords = tex_coord;\n"
+		"    vs_out.FragPosLightSpace = lightSpaceMatrix * vec4(vs_out.FragPos, 1.0);\n"
+		"    gl_Position = projection * view * model * vec4(position, 1.0);\n"
+		"}\n";
 
-	Shader shader(sourceV, sourceF);
-	Shader shader2(sourceV2, sourceF2);
+	const std::string sourceFShadowMap = "#version 330 core\n"
+		"out vec4 FragColor;\n"
+		"\n"
+		"in VS_OUT {\n"
+		"    vec3 FragPos;\n"
+		"    vec3 Normal;\n"
+		"    vec2 TexCoords;\n"
+		"    vec4 FragPosLightSpace;\n"
+		"} fs_in;\n"
+		"\n"
+		"uniform sampler2D diffuseTexture;\n"
+		"uniform sampler2D shadowMap;\n"
+		"\n"
+		"uniform vec3 lightPos;\n"
+		"uniform vec3 viewPos;\n"
+		"\n"
+		"float ShadowCalculation(vec4 fragPosLightSpace)\n"
+		"{\n"
+		"    // perform perspective divide\n"
+		"    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;\n"
+		"    // transform to [0,1] range\n"
+		"    projCoords = projCoords * 0.5 + 0.5;\n"
+		"    // get closest depth value from light's perspective (using [0,1] range fragPosLight as coords)\n"
+		"    float closestDepth = texture(shadowMap, projCoords.xy).r; \n"
+		"    // get depth of current fragment from light's perspective\n"
+		"    float currentDepth = projCoords.z;\n"
+		"    // calculate bias (based on depth map resolution and slope)\n"
+		"    vec3 normals = normalize(fs_in.Normal);\n"
+		"    vec3 lightDir = normalize(lightPos - fs_in.FragPos);\n"
+		"    float bias = max(0.05 * (1.0 - dot(normals, lightDir)), 0.005);\n"
+		"    // check whether current frag pos is in shadow\n"
+		"    // float shadow = currentDepth - bias > closestDepth  ? 1.0 : 0.0;\n"
+		"    // PCF\n"
+		"    float shadow = 0.0;\n"
+		"    vec2 texelSize = 1.0 / textureSize(shadowMap, 0);\n"
+		"    for(int x = -1; x <= 1; ++x)\n"
+		"    {\n"
+		"        for(int y = -1; y <= 1; ++y)\n"
+		"        {\n"
+		"            float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r; \n"
+		"            shadow += currentDepth - bias > pcfDepth  ? 1.0 : 0.0;    \n"
+		"        }    \n"
+		"    }\n"
+		"    shadow /= 9.0;\n"
+		"    \n"
+		"    // keep the shadow at 0.0 when outside the far_plane region of the light's frustum.\n"
+		"    if(projCoords.z > 1.0)\n"
+		"        shadow = 0.0;\n"
+		"        \n"
+		"    return shadow;\n"
+		"}\n"
+		"\n"
+		"void main()\n"
+		"{    \n"
+		"   vec3 color = texture(diffuseTexture, fs_in.TexCoords).rgb;\n"
+		"    vec3 normals = normalize(fs_in.Normal);\n"
+		"    vec3 lightColor = vec3(0.3);\n"
+		"    // ambient\n"
+		"    vec3 ambient = 0.3 * lightColor;\n"
+		"    // diffuse\n"
+		"    vec3 lightDir = normalize(lightPos - fs_in.FragPos);\n"
+		"    float diff = max(dot(lightDir, normals), 0.0);\n"
+		"    vec3 diffuse = diff * lightColor;\n"
+		"    // specular\n"
+		"    vec3 viewDir = normalize(viewPos - fs_in.FragPos);\n"
+		"    vec3 reflectDir = reflect(-lightDir, normals);\n"
+		"    float spec = 0.0;\n"
+		"    vec3 halfwayDir = normalize(lightDir + viewDir);  \n"
+		"    spec = pow(max(dot(normals, halfwayDir), 0.0), 64.0);\n"
+		"    vec3 specular = spec * lightColor;    \n"
+		"    // calculate shadow\n"
+		"    float shadow = ShadowCalculation(fs_in.FragPosLightSpace);   \n"
+		"    vec3 lighting = (ambient + (1.0 - shadow) * (diffuse + specular)) * color; \n"
+		"    \n"
+		"    FragColor = vec4(lighting, 1.0);\n"
+		"}\n";
+
+	const std::string sourceVShadowMapDepth = "#version 330 core\n"
+		"layout (location = 0) in vec3 position;\n"
+		"\n"
+		"uniform mat4 lightSpaceMatrix;\n"
+		"uniform mat4 model;\n"
+		"\n"
+		"void main()\n"
+		"{\n"
+		"    gl_Position = lightSpaceMatrix * model * vec4(position, 1.0);\n"
+		"}\n";
+
+	const std::string sourceFShadowMapDepth = "#version 330 core\n"
+		"\n"
+		"void main()\n"
+		"{          \n"
+		"    // gl_FragDepth = gl_FragCoord.z;\n"
+		"}\n";
+
+
+
+
+	// build and compile shaders
+	Shader shadowshader(sourceVShadowMap, sourceFShadowMap);
+	Shader simpleDepthShader(sourceVShadowMapDepth, sourceFShadowMapDepth);
+
+	Shader shader = Shader(sourceV, sourceF);
+	Shader shader2 = Shader(sourceV2, sourceF2);
 	Shader cubeMapShader = Shader(sourceVCubeMap, sourceFCubeMap);
 
+	// Import objects and create VAO VBO
 	char pathCube[] = PATH_TO_OBJECTS "/cube.obj";
 	Object cubeMap(pathCube);
 	cubeMap.makeObject(cubeMapShader);
 
 	char pathSphere[] = PATH_TO_OBJECTS "/sphere_smooth.obj";
 	Object sphere(pathSphere);
-	sphere.makeObject(shader);
+	sphere.makeObject(shader2);
 
 	char pathBatter[] = PATH_TO_OBJECTS "/basball.obj";
-	Object cube2(pathBatter);
-	cube2.makeObject(shader);
+	Object Batter(pathBatter);
+	Batter.makeObject(shadowshader);
 
 	char pathPlane[] = PATH_TO_OBJECTS "/plane.obj";
 	Object plane(pathPlane);
-	plane.makeObject(shader);
+	plane.makeObject(shadowshader);
+
+	char pathPlane2[] = PATH_TO_OBJECTS "/plane.obj";
+	Object plane2(pathPlane2);
+	plane2.makeObject(shader);
 
 
 
@@ -364,11 +549,12 @@ int main(int argc, char* argv[])
 			deltaFrame = 0;
 			std::cout << "\r FPS: " << fpsCount;
 		}
-	};
+		};
 
 
+	glm::vec3 light_pos(-1.0f, 15.0f, -5.0f);
 
-	glm::vec3 light_pos = glm::vec3(1.0, 2.0, 1.5);
+	//glm::vec3 light_pos = glm::vec3(1.0, 2.0, 1.5);
 	glm::mat4 model = glm::mat4(1.0);
 	model = glm::translate(model, glm::vec3(0.0, 0.0, -2.0));
 	model = glm::scale(model, glm::vec3(0.5, 0.5, 0.5));
@@ -386,8 +572,10 @@ int main(int argc, char* argv[])
 	// test autre couleur glm::vec3 materialColour = glm::vec3(0.f, 0., 0.);
 
 
+	// load textures
+	unsigned int metalTexture = loadTexture(PATH_TO_TEXTURE"/metal.png");
 
-
+	// Initialisation of the shader of the ball 
 	shader2.use();
 	shader2.setFloat("shininess", 32.0f);
 	shader2.setVector3f("materialColour", materialColour);
@@ -420,32 +608,24 @@ int main(int argc, char* argv[])
 
 	//2. Create the collisions shapes
 	glm::mat4 model2 = glm::mat4(2.0);
+
 	glm::mat4 modelGround = glm::mat4(1.0);
-	modelGround = glm::scale(modelGround, glm::vec3(10, 1, 10));
 	modelGround = glm::translate(modelGround, glm::vec3(0, 0, 0));
+	modelGround = glm::scale(modelGround, glm::vec3(50, 1, 50));
 
-	//2.a We need one for the ground
-	{
-		btCollisionShape* groundShape = new btBoxShape(btVector3(btScalar(100.), btScalar(50.), btScalar(100.)));
-		collisionShapes.push_back(groundShape);
-		btTransform groundTransform;
-		groundTransform.setIdentity();
-		groundTransform.setOrigin(btVector3(0, -50, 0));
-		btScalar mass(0.);
-		bool isDynamic = false;
-		btVector3 localInertia(0, 0, 0);
+	glm::mat4 modelGround2 = glm::mat4(1.0);
+	modelGround2 = glm::translate(modelGround2, glm::vec3(0, 7, 16));
+	modelGround2 = glm::scale(modelGround2, glm::vec3(.5, 2, 2));//(-7, 15, 15));
 
-		btDefaultMotionState* myMotionState = new btDefaultMotionState(groundTransform);
-		btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, groundShape, localInertia);
-		rbInfo.m_restitution = 1.0f;
-		btRigidBody* body = new btRigidBody(rbInfo);
+	// One for the ground, one for the mirror
+	btRigidBody* bodyPlaneGround = createPlaneRigidBody(dynamicsWorld, 0, btVector3(0, 0, 0), btVector3(50, 1, 50));
+	btRigidBody* bodyMirror2 = createPlaneRigidBody(dynamicsWorld, 0, btVector3(0, 7, 16), btVector3(1, 1, 1));;
 
-		dynamicsWorld->addRigidBody(body);
-	}
-	//2.b 3 other ones are for the 3 balls of the game
+
+	//2.b Another one are for the balls of the game
 	btRigidBody* bodySphere = createSphere(dynamicsWorld, 1.0, btVector3(-4, 10, -3.5));
 
-	
+
 	//3.b Another one for the batter
 	btRigidBody* bodyBatter;
 	{
@@ -454,7 +634,7 @@ int main(int argc, char* argv[])
 		btScalar mass(50000);
 		btTransform startTransform;
 		startTransform.setIdentity();
-		startTransform.setOrigin(btVector3(0, 3, 0));// 10 1 10
+		startTransform.setOrigin(btVector3(0, 5, 0));
 		startTransform.setRotation(btQuaternion(0, 0, 0, mass));
 		bool isDynamic = (mass != 0.f);
 		btVector3 localInertia(100, 0, 100);
@@ -476,9 +656,7 @@ int main(int argc, char* argv[])
 		dynamicsWorld->addRigidBody(bodyBatter);
 	}
 
-	glfwSwapInterval(1);
-	//Rendering
-
+	// Cubemap initialisation
 	GLuint cubeMapTexture;
 	glGenTextures(1, &cubeMapTexture);
 	glActiveTexture(GL_TEXTURE0);
@@ -510,17 +688,15 @@ int main(int argc, char* argv[])
 
 	auto lastFrameTime = glfwGetTime();
 
-	std::vector<Particle> ballTrailParticles;
-	btVector3 initialVelocity = bodySphere->getLinearVelocity();
-	btVector3 previousVelocity = initialVelocity;
-	float speedChangeThreshold = 2.0f;
+	initialVelocity = bodySphere->getLinearVelocity();
+	previousVelocity = initialVelocity;
+
 
 
 
 	// Particle object
 	// 1. Triangle vertices
 	const float positionsData[9] = {
-		// vertices
 		-1.0, -1.0, 0.0,
 		1.0, -1.0, 0.0,
 		0.0, 1.0, 0.0,
@@ -545,7 +721,67 @@ int main(int argc, char* argv[])
 	//desactive the buffer
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
-	
+
+
+
+	// configure depth map FBO
+	const unsigned int SHADOW_WIDTH = 1024, SHADOW_HEIGHT = 1024;
+	unsigned int depthMapFBO;
+	glGenFramebuffers(1, &depthMapFBO);
+
+	// create depth texture
+	unsigned int depthMap;
+	glGenTextures(1, &depthMap);
+	glBindTexture(GL_TEXTURE_2D, depthMap);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+	// attach depth texture as FBO's depth buffer
+	glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
+	glDrawBuffer(GL_NONE);
+	glReadBuffer(GL_NONE);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+
+	// Shadow shader configuration
+	shadowshader.use();
+	shadowshader.setInt("diffuseTexture", 0);
+	shadowshader.setInt("shadowMap", 1);
+
+
+
+
+
+
+
+
+
+
+
+
+	GLfloat quadVertices[] = {
+		// Positions       // Texture Coords
+		0.5f,  0.5f, 0.0f, 1.0f,  // Top right
+	   -0.5f,  0.5f, 0.0f, 0.0f,  // Top left
+	   -0.5f, -0.5f, 0.0f, 0.0f,  // Bottom left
+		0.5f, -0.5f, 0.0f, 1.0f   // Bottom right
+	};
+	GLuint quadVAO, quadVBO;
+	glGenVertexArrays(1, &quadVAO);
+	glGenBuffers(1, &quadVBO);
+	glBindVertexArray(quadVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (GLvoid*)0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (GLvoid*)(2 * sizeof(GLfloat)));
+	glEnableVertexAttribArray(1);
+
 
 
 	/*
@@ -557,6 +793,16 @@ int main(int argc, char* argv[])
 	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 	*/
 
+	// Initialiser le framebuffer du miroir
+    initMirrorFramebuffer();
+
+	glm::mat4 modelMirror = glm::mat4(1.0);
+	modelMirror = glm::translate(modelMirror, mirrorPosition);
+	modelMirror = glm::scale(modelMirror, glm::vec3(.5, 2, 2));//(-7, 15, 15));
+
+	glfwSwapInterval(1);
+
+	// Rendering
 
 	while (!glfwWindowShouldClose(window)) {
 
@@ -566,90 +812,122 @@ int main(int argc, char* argv[])
 
 		double now = glfwGetTime();
 
+		// Update the light position
+		light_pos.x = sin(glfwGetTime()) * 1.1f;
+		light_pos.z = cos(glfwGetTime()) * 1.1f;
+		//light_pos.y = 5.0 + cos(glfwGetTime()) * 1.0f;
 
-		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		glBindVertexArray(VAO);
-
-
-		//3. Ask bullet to do the simulation
+		// Update physics simulation with Bullet
 		dynamicsWorld->stepSimulation(now - lastFrameTime, 10);
 
-		// Ball change
-		if (giveImpulseV && (previousStateV == false)) {
-			transitionBall = true;
-			previousStateV = true;
-		}
-		else if (!giveImpulseV) {
-			previousStateV = false;
-		}
+		handleBallTransition(bodySphere); // Ball change
+		handleThresholdForParticles(bodySphere); // Particles
+		updateBodyBatter(bodyBatter); // Batter movements
 
+		// Get the model matrice for the ball from bullet
+		btTransform transform;
+		bodySphere->getMotionState()->getWorldTransform(transform);
+		transform.getOpenGLMatrix(glm::value_ptr(model));
 
-		if (transitionBall) {
-			// Move the ball to a specific position
-			btTransform newTransform;
-			newTransform.setIdentity();
-			newTransform.setOrigin(btVector3(-4, 10, -3.5));
-			bodySphere->getMotionState()->setWorldTransform(newTransform);
-			bodySphere->setWorldTransform(newTransform);
-			bodySphere->setLinearVelocity(btVector3(0, 0, 0));
-			bodySphere->setAngularVelocity(btVector3(0, 0, 0));
-
-			btVector3 previousVelocity = initialVelocity;
-			ballTrailParticles.clear();
-			ballExceededThreshold = false;
-			transitionBall = false;
-		}
-
-		// Compare the actual speed with the previous one
-		btVector3 currentVelocity = bodySphere->getLinearVelocity();
-		float speedChange = (currentVelocity - previousVelocity).length();
-
-		// Check if speed is above the threshold
-		if (speedChange > speedChangeThreshold) {
-			ballExceededThreshold = true;
-		}
-		else {
-			previousVelocity = currentVelocity;   // Update the speed
-		}
-
-		//4. Get the model matrice for the object (batter) from bullet
-
+		// Get the model matrice for the batter from bullet
 		btTransform transform2;
 		bodyBatter->getMotionState()->getWorldTransform(transform2);
 		transform2.getOpenGLMatrix(glm::value_ptr(model2));
 
-		bodyBatter->setLinearVelocity(btVector3(0, 0, 0));
 
-		// Batter movements
-		if (giveImpulseB || giveImpulseN) {
-			if (giveImpulseB) {
-				bodyBatter->setAngularVelocity(btVector3(0, -15, 0));
-				giveImpulseB = false;
-			}
-			else {
-				bodyBatter->setAngularVelocity(btVector3(0, 5, 0));
-				giveImpulseN = false;
-			}
-		}
-		else {
-			bodyBatter->setAngularVelocity(btVector3(0, 0, 0));
-		}
-
-
-
-		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+		// Clear the scene
+		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+		// render depth of scene to texture (from light's perspective)
+		glm::mat4 lightProjection, lightView;
+		glm::mat4 lightSpaceMatrix;
+		float near_plane = 1.0f, far_plane = 50.5f;
+		lightProjection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
+		lightView = glm::lookAt(light_pos, glm::vec3(0.0f), glm::vec3(0.0, 1.0, 0.0));
+		lightSpaceMatrix = lightProjection * lightView;
 
+		// render scene from light's point of view
+		simpleDepthShader.use();
+		simpleDepthShader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+
+		glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+		glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+		glClear(GL_DEPTH_BUFFER_BIT);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, metalTexture);
+
+		// draw ball in depth map 
+		simpleDepthShader.setMat4("model", model);
+		sphere.draw();
+
+		// draw batter in depth map 
+		simpleDepthShader.setMat4("model", model2);
+		Batter.draw();
+
+		// draw ground in depth map 
+		simpleDepthShader.setMat4("model", modelGround);
+		plane.draw();
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		// reset viewport
+		glViewport(0, 0, width, height);
+
+		
+		// Clear the scene
+		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glDepthFunc(GL_LESS);
+
+		
+		// Bind the data for the particles
+		glBindVertexArray(VAO);
+
+		// Bind the data for the texture of the cubeMap
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
+		cubeMapShader.setInteger("cubemapTexture", 0);
+
+		
+		// Render the main scene 
+		
+		// render scene as normal using the generated depth/shadow map  
+		shadowshader.use();
+		glm::mat4 projection = camera.GetProjectionMatrix(); //glm::perspective(glm::radians(camera.Zoom), (float)width / (float)height, 0.1f, 100.0f);
+		glm::mat4 view = camera.GetViewMatrix();
+		shadowshader.setMat4("projection", projection);
+		shadowshader.setMat4("view", view);
+
+		// set light uniforms
+		shadowshader.setVec3("viewPos", camera.Position);
+		shadowshader.setVec3("lightPos", light_pos);
+		shadowshader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+
+		// Bind the data for the texture of the batter and the ground
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, metalTexture);
+
+		// Bind the data for the texture of the depth map
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, depthMap);
+
+		
+		// draw batter
+		shadowshader.setMat4("model", model2);
+		Batter.draw();
+
+		// draw ground 
+		shadowshader.setMat4("model", modelGround);
+		plane.draw();
+		
+		// View matrix
 		view = camera.GetViewMatrix();
+		perspective = camera.GetProjectionMatrix();
 
-		// Use the shader Class to send the uniform
+
+		// Use the shader Class to send the uniform for the ball
 		shader2.use();
-		btTransform transform;
-		bodySphere->getMotionState()->getWorldTransform(transform);
-		transform.getOpenGLMatrix(glm::value_ptr(model));
 		shader2.setMatrix4("M", model);
 		shader2.setMatrix4("itM", inverseModel);
 		shader2.setMatrix4("V", view);
@@ -658,43 +936,16 @@ int main(int argc, char* argv[])
 
 		auto delta = light_pos + glm::vec3(0.0, 0.0, 2 * std::sin(now));
 
-
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
-		cubeMapShader.setInteger("cubemapTexture", 0);
-
-		glm::vec3 ballPosition2(
-			transform.getOrigin().getX(),
-			transform.getOrigin().getY(),
-			transform.getOrigin().getZ()
-		);
+		// Draw ball
 		sphere.draw();
 
 
-
+		// Use the shader Class to send the uniform for the others
 		shader.use();
 		shader.setMatrix4("V", view);
 		shader.setMatrix4("P", perspective);
 
-		if (ballExceededThreshold) {
-			btTransform transform;
-			bodySphere->getMotionState()->getWorldTransform(transform);
-			glm::vec3 ballPosition(
-				transform.getOrigin().getX(),
-				transform.getOrigin().getY(),
-				transform.getOrigin().getZ()
-			);
-
-			// Add a new particle to the trail
-			Particle newParticle;
-			newParticle.position = (ballPosition);
-			newParticle.velocity = glm::vec3(0.01f, -0.01f, 0.01f);
-			newParticle.lifetime = initialLifetime;
-			ballTrailParticles.push_back(newParticle);
-		};
-
-
-
+		// draw particles
 		for (auto& particle : ballTrailParticles) {
 
 			particle.lifetime -= deltaTime2;
@@ -708,17 +959,12 @@ int main(int argc, char* argv[])
 			if (particle.lifetime <= 0.0f) {
 				ballTrailParticles.erase(ballTrailParticles.begin(), ballTrailParticles.begin() + 1);
 			}
-
 		}
-
-
-		// draw batter
-		shader.setMatrix4("M", model2);
-		cube2.draw();
-
-		// draw ground
-		shader.setMatrix4("M", modelGround);
+		
+		// draw mirror
+		shader.setMatrix4("M", modelGround2);
 		plane.draw();
+
 
 		// draw cubemap
 		cubeMapShader.use();
@@ -729,30 +975,162 @@ int main(int argc, char* argv[])
 		glDepthFunc(GL_LEQUAL);  // Set depth function to less than or equal for cubemap
 		cubeMap.draw();
 		glDepthFunc(GL_LESS);    // Reset depth function to default
+
+
+		/*
+		// Rendering the mirror
+		// Set up the mirror view matrix to make it correspond to its point of view
+
+		shader.use();
+		//glm::vec3 mirrorPosition = glm::vec3(0.f, 7.f, 16.f); // Position du miroir
+
+		// Inside the mirror framebuffer rendering section
+		glm::mat4 mirrorModel = glm::translate(glm::mat4(1.0f), 2.0f * mirrorPosition);
+		//glm::mat4 mirrorModel = glm::translate(glm::mat4(1.0f), mirrorPosition);// *glm::scale(glm::mat4(1.0f), glm::vec3(2.0f));
+		//shader.setMatrix4("M", mirrorModel); // Use the mirror model matrix
+		//shader.setMatrix4("M", mirrorModel);
+
+		//glm::vec3 mirrorCameraPos = mirrorPosition + (camera.Position - mirrorPosition);
+		glm::vec3 mirrorCameraPos = 2.0f * mirrorPosition - camera.Position;
+		glm::vec3 mirrorTarget = glm::vec3(0.0f, 0.0f, 0.0f); // Point de cible du miroir
+		glm::vec3 mirrorUp = glm::vec3(0.0f, -1.0f, 0.0f); // Adjust the "up" vector 
+		glm::mat4 mirrorView = glm::lookAt(mirrorCameraPos, mirrorTarget, mirrorUp);
+
+		// Inside the mirror framebuffer rendering section
+		glDisable(GL_CULL_FACE); // Disable face culling to render both sides of the geometry
+
+
+		// Set up the mirror projection (adjust as needed)
+		//glm::mat4 mirrorProjection = glm::perspective(glm::radians(45.0f), 1.0f, 0.1f, 100.0f);
+		glm::mat4 mirrorProjection =  perspective;
+		//glm::mat4 mirrorProjection = glm::mat4(1.0f);
+
+
+		// Render objects in the mirror
+		glBindFramebuffer(GL_FRAMEBUFFER, mirrorFramebuffer);
+		glViewport(width / 2, 0, width / 2, height / 2);
+
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glEnable(GL_DEPTH_TEST);
+		
+		// Draw the scene from the mirror's point of view
+		shader.use();
+		shader.setMatrix4("V", mirrorView);
+		shader.setMatrix4("P", mirrorProjection);
+
+		// Draw the batter
+		shader.setMatrix4("M", model2);
+		.draw();
+
+		// Draw the ground
+		shader.setMatrix4("M", modelGround);
+		plane.draw();
+
+		// Draw the ground mirror
+		shader.setMatrix4("M", modelGround2);
+		plane.draw();
+
+		// Draw the cubemap
+		cubeMapShader.use();
+		cubeMapShader.setMatrix4("V", mirrorView);
+		cubeMapShader.setMatrix4("P", mirrorProjection);
+
+		glDepthFunc(GL_LEQUAL);
+		//cubeMap.draw();
+		glDepthFunc(GL_LESS);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glViewport(0, 0, width, height);
+		glEnable(GL_CULL_FACE);
+
+		// Draw the mirror using the mirror framebuffer texture
+		shader.use();
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, mirrorColorBuffer);
+		shader.setInteger("mirrorTexture", 1);
+
+		// Draw a quad with the mirror texture
+		glBindVertexArray(quadVAO);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		glBindVertexArray(0);
+
+		// Reset to the default framebuffer
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		// Draw the rest of the scene
+		glViewport(0, 0, width, height);
+
+		// Draw the batter
+		shader.setMatrix4("V", view);
+		shader.setMatrix4("P", perspective);
+		shader.setMatrix4("M", model2);
+		Batter.draw();
+
+		// Draw the ground
+		shader.setMatrix4("M", modelGround);
+		plane.draw();
+
+		// Draw the ground mirror
+		shader.setMatrix4("M", modelGround2);
+		plane.draw();
+
+		// Draw the cubemap
+		cubeMapShader.use();
+		cubeMapShader.setMatrix4("V", view);
+		cubeMapShader.setMatrix4("P", perspective);
+
+		glDepthFunc(GL_LEQUAL);
+		//cubeMap.draw();
+		glDepthFunc(GL_LESS);
+
+
+
+		//// Render mirror-related objects here
+
+
+		//// Reset framebuffer
+		//glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		//glViewport(width / 2, 0, width / 2, height / 2);
+
+		////glClearColor(1.f, 1.f, 1.f, 1.f);
+		////glClear(GL_COLOR_BUFFER_BIT);
+		//shader.use(); // Aply effect
+
+		//glBindVertexArray(quadVAO);
+		//glDisable(GL_DEPTH_TEST);
+		//glBindTexture(GL_TEXTURE_2D, mirrorFramebuffer);
+		//glDrawArrays(GL_TRIANGLES, 0, 6);
+		//glBindVertexArray(0);
+
+		//glViewport(0, 0, width, height);
+		*/
 		fps(now);
 		lastFrameTime = now;
 		glfwSwapBuffers(window);
 	}
-		/*
-		// Render to the secondary framebuffer
-		glBindFramebuffer(GL_FRAMEBUFFER, secondaryFramebuffer);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glViewport(width / 2, 0, width / 2, height / 2);
+	/*
+	// Render to the secondary framebuffer
+	glBindFramebuffer(GL_FRAMEBUFFER, secondaryFramebuffer);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glViewport(width / 2, 0, width / 2, height / 2);
 
-		// Set up the secondary camera (same position or orientation as the main camera)
-		view = camera.GetViewMatrix();  // Use the same camera
+	// Set up the secondary camera (same position or orientation as the main camera)
+	view = camera.GetViewMatrix();  // Use the same camera
 
-		// Enable a shader for the black and white effect
-		shader.use();
+	// Enable a shader for the black and white effect
+	shader.use();
 
-		// Pass necessary uniforms to the shader, if required
+	// Pass necessary uniforms to the shader, if required
 
-		// Render the scene 
+	// Render the scene
 
-		// Switch back to the main framebuffer
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glViewport(0, 0, width, height);
-		*/
+	// Switch back to the main framebuffer
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glViewport(0, 0, width, height);
+	*/
 
 
 	//5. Clean up 
@@ -761,7 +1139,7 @@ int main(int argc, char* argv[])
 	{
 		btCollisionObject* obj = dynamicsWorld->getCollisionObjectArray()[i];
 		btRigidBody* body = btRigidBody::upcast(obj);
-		if (body && body->getMotionState())	{
+		if (body && body->getMotionState()) {
 			delete body->getMotionState();
 		}
 		dynamicsWorld->removeCollisionObject(obj);
@@ -786,6 +1164,8 @@ int main(int argc, char* argv[])
 	//next line is optional: it will be cleared by the destructor when the array goes out of scope
 	collisionShapes.clear();
 
+	// Free the memory of the buffer
+	glDeleteBuffers(1, &mirrorColorBuffer);
 
 	//clean up ressource
 	glfwDestroyWindow(window);
@@ -883,3 +1263,149 @@ btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const b
 
 	return body;
 }
+
+
+
+// Function to create a static rigid body for the mirror
+btRigidBody* createPlaneRigidBody(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position, const btVector3& size) {
+	btCollisionShape* colShape = new btBoxShape(size);
+	collisionShapes.push_back(colShape);
+	
+	// Calculate the transformation for the mirror
+	btTransform mirrorTransform;
+	mirrorTransform.setIdentity();
+	mirrorTransform.setOrigin(position);
+
+	btVector3 localInertia(0, 0, 0);
+	if (mass != 0.f)
+		colShape->calculateLocalInertia(mass, localInertia);
+
+
+	btDefaultMotionState* myMotionState = new btDefaultMotionState(mirrorTransform);
+	btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
+	rbInfo.m_friction = 1.f;
+	rbInfo.m_restitution = 0.9f;
+
+	btRigidBody* body = new btRigidBody(rbInfo);
+	dynamicsWorld->addRigidBody(body);
+
+	return body;
+}
+
+void handleBallTransition(btRigidBody* bodySphere) {
+	if (giveImpulseV && (previousStateV == false)) {
+		transitionBall = true;
+		previousStateV = true;
+	}
+	else if (!giveImpulseV) {
+		previousStateV = false;
+	}
+
+	if (transitionBall) {
+		// Move the ball to a specific position
+		btTransform newTransform;
+		newTransform.setIdentity();
+		newTransform.setOrigin(btVector3(-4, 10, -3.5));
+		bodySphere->getMotionState()->setWorldTransform(newTransform);
+		bodySphere->setWorldTransform(newTransform);
+		bodySphere->setLinearVelocity(btVector3(0, 0, 0));
+		bodySphere->setAngularVelocity(btVector3(0, 0, 0));
+
+		previousVelocity = initialVelocity;
+		ballTrailParticles.clear();
+		ballExceededThreshold = false;
+		transitionBall = false;
+	}
+}
+
+void updateBodyBatter(btRigidBody* bodyBatter) {
+	bodyBatter->setLinearVelocity(btVector3(0, 0, 0));
+	if (giveImpulseB || giveImpulseN) {
+		if (giveImpulseB) {
+			bodyBatter->setAngularVelocity(btVector3(0, -15, 0));
+			giveImpulseB = false;
+		}
+		else {
+			bodyBatter->setAngularVelocity(btVector3(0, 5, 0));
+			giveImpulseN = false;
+		}
+	}
+	else {
+		bodyBatter->setAngularVelocity(btVector3(0, 0, 0));
+	}
+}
+
+void handleThresholdForParticles(btRigidBody* bodySphere) {
+
+	// Compare the actual speed with the previous one
+	btVector3 currentVelocity = bodySphere->getLinearVelocity();
+	float speedChange = (currentVelocity - previousVelocity).length();
+
+	// Check if speed is above the threshold
+
+	if (speedChange > speedChangeThreshold) {
+		ballExceededThreshold = true;
+	}
+	else {
+		previousVelocity = currentVelocity;   // Update the speed
+	}
+
+	if (ballExceededThreshold) {
+		btTransform transform;
+		bodySphere->getMotionState()->getWorldTransform(transform);
+		glm::vec3 ballPosition(
+			transform.getOrigin().getX(),
+			transform.getOrigin().getY(),
+			transform.getOrigin().getZ()
+		);
+
+		// Add a new particle to the trail
+		Particle newParticle;
+		newParticle.position = (ballPosition);
+		newParticle.velocity = glm::vec3(0.01f, -0.01f, 0.01f);
+		newParticle.lifetime = initialLifetime;
+		ballTrailParticles.push_back(newParticle);
+	};
+}
+
+
+
+// utility function for loading a 2D texture from file
+// ---------------------------------------------------
+unsigned int loadTexture(char const* path)
+{
+	unsigned int textureID;
+	glGenTextures(1, &textureID);
+
+	int texwidth, texheight, nrComponents;
+	unsigned char* data = stbi_load(path, &texwidth, &texheight, &nrComponents, 0);
+	if (data)
+	{
+		GLenum format;
+		if (nrComponents == 1)
+			format = GL_RED;
+		else if (nrComponents == 3)
+			format = GL_RGB;
+		else if (nrComponents == 4)
+			format = GL_RGBA;
+
+		glBindTexture(GL_TEXTURE_2D, textureID);
+		glTexImage2D(GL_TEXTURE_2D, 0, format, texwidth, texheight, 0, format, GL_UNSIGNED_BYTE, data);
+		glGenerateMipmap(GL_TEXTURE_2D);
+
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, format == GL_RGBA ? GL_CLAMP_TO_EDGE : GL_REPEAT); // for this tutorial: use GL_CLAMP_TO_EDGE to prevent semi-transparent borders. Due to interpolation it takes texels from next repeat 
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, format == GL_RGBA ? GL_CLAMP_TO_EDGE : GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		stbi_image_free(data);
+	}
+	else
+	{
+		std::cout << "Texture failed to load at path: " << path << std::endl;
+		stbi_image_free(data);
+	}
+
+	return textureID;
+}
+

@@ -55,7 +55,6 @@ include_directories(3rdParty/glad/include/
 
 set(SOURCES_EX_08 "ex08.cpp" "camera.h" "shader.h" "object.h")
 set(SOURCES_Main "main.cpp" "camera.h" "shader.h" "object.h")
-set(SOURCES_Test "test.cpp" "camera.h" "shader.h" "object.h")
 
 
 #These commands are there to specify the path to the folder containing the object and textures files as macro
@@ -66,9 +65,6 @@ add_compile_definitions(PATH_TO_SHADER="${CMAKE_CURRENT_SOURCE_DIR}")
 
 add_executable(${PROJECT_NAME}_ex08 ${SOURCES_EX_08})
 target_link_libraries(${PROJECT_NAME}_ex08 PUBLIC glad OpenGL::GL glfw LinearMath  BulletDynamics BulletCollision)
-
-add_executable(${PROJECT_NAME}_test ${SOURCES_Test})
-target_link_libraries(${PROJECT_NAME}_test PUBLIC glad OpenGL::GL glfw LinearMath  BulletDynamics BulletCollision)
 
 
 add_executable(${PROJECT_NAME}_Main ${SOURCES_Main})
