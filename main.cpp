@@ -506,14 +506,6 @@ int main(int argc, char* argv[])
 
 	// Initialisation of the shader of the ball 
 	shader2.use();
-	shader2.setFloat("shininess", 32.0f);
-	shader2.setVector3f("materialColour", materialColour);
-	shader2.setFloat("light.ambient_strength", ambient);
-	shader2.setFloat("light.diffuse_strength", diffuse);
-	shader2.setFloat("light.specular_strength", specular);
-	shader2.setFloat("light.constant", 1.0);
-	shader2.setFloat("light.linear", 0.14);
-	shader2.setFloat("light.quadratic", 0.07);
 	// For refraction shader2.setFloat("refractionIndice", 1.52);
 
 
@@ -717,7 +709,7 @@ int main(int argc, char* argv[])
 
 
 
-		// -------first render pass: mirror texture.-------
+		// -------first render pass: plane texture.-------
 		// bind to framebuffer and draw to color texture as we normally would from a different point of view.
 		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
 		glEnable(GL_DEPTH_TEST); // enable depth testing
@@ -776,7 +768,6 @@ int main(int argc, char* argv[])
 		shader2.setMatrix4("P", perspective);
 		shader2.setVector3f("u_view_pos", camera2.Position);
 
-		auto delta = light_pos + glm::vec3(0.0, 0.0, 2 * std::sin(now));
 
 		// Draw ball
 		sphere.draw();
@@ -883,7 +874,7 @@ int main(int argc, char* argv[])
 
 		// render scene as normal using the generated depth/shadow map  
 		shadowshader.use();
-		projection = camera.GetProjectionMatrix(); //glm::perspective(glm::radians(camera.Zoom), (float)width / (float)height, 0.1f, 100.0f);
+		projection = camera.GetProjectionMatrix();
 		view = camera.GetViewMatrix();
 		shadowshader.setMat4("projection", projection);
 		shadowshader.setMat4("view", view);
@@ -1134,15 +1125,15 @@ btRigidBody* createPlaneRigidBody(btDynamicsWorld* dynamicsWorld, btScalar mass,
 	btCollisionShape* colShape = new btBoxShape(size);
 	collisionShapes.push_back(colShape);
 	
-	btTransform mirrorTransform;
-	mirrorTransform.setIdentity();
-	mirrorTransform.setOrigin(position);
+	btTransform planeTransform;
+	planeTransform.setIdentity();
+	planeTransform.setOrigin(position);
 
 	btVector3 localInertia(0, 0, 0);
 	if (mass != 0.f)
 		colShape->calculateLocalInertia(mass, localInertia);
 
-	btDefaultMotionState* myMotionState = new btDefaultMotionState(mirrorTransform);
+	btDefaultMotionState* myMotionState = new btDefaultMotionState(planeTransform);
 	btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
 	rbInfo.m_friction = 1.f;
 	rbInfo.m_restitution = 0.9f;
