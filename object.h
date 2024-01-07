@@ -171,20 +171,23 @@ public:
 		glBindVertexArray(VAO);
 		glBindBuffer(GL_ARRAY_BUFFER, VBO);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * numVertices, data, GL_STATIC_DRAW);
-
-		auto att_pos = glGetAttribLocation(shader.ID, "position");
+	
+		auto att_pos = glGetAttribLocation(shader.ID, "position");//0;glGetAttribLocation(shader.ID, "position")
+		//std::cout <<" yo" << shader.ID << att_pos << std::endl;
 		glEnableVertexAttribArray(att_pos);
 		glVertexAttribPointer(att_pos, 3, GL_FLOAT, false, 8 * sizeof(float), (void*)0);
 
 		
 		if (texture) {
-			auto att_tex = glGetAttribLocation(shader.ID, "tex_coord");
+			auto att_tex = glGetAttribLocation(shader.ID, "tex_coord");// 2;glGetAttribLocation(shader.ID, "tex_coord")
+			//std::cout << " yo" << shader.ID << att_tex << std::endl;
 			glEnableVertexAttribArray(att_tex);
 			glVertexAttribPointer(att_tex, 2, GL_FLOAT, false, 8 * sizeof(float), (void*)(3 * sizeof(float)));
 			
 		}
 		
-		auto att_col = glGetAttribLocation(shader.ID, "normal");
+		auto att_col = glGetAttribLocation(shader.ID, "normal");// 1;glGetAttribLocation(shader.ID, "normal")
+		//std::cout << " yo" << shader.ID << att_col << std::endl;
 		glEnableVertexAttribArray(att_col);
 		glVertexAttribPointer(att_col, 3, GL_FLOAT, false, 8 * sizeof(float), (void*)(5 * sizeof(float)));
 		

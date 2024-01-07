@@ -68,11 +68,23 @@ public:
     void setFloat(const GLchar* name, GLfloat value) {
         glUniform1f(glGetUniformLocation(ID, name), value);
     }
+    void setVec2(const std::string& name, const glm::vec2& value) const
+    {
+        glUniform2fv(glGetUniformLocation(ID, name.c_str()), 1, &value[0]);
+    }
+    void setVec2(const std::string& name, float x, float y) const
+    {
+        glUniform2f(glGetUniformLocation(ID, name.c_str()), x, y);
+    }
     void setVector3f(const GLchar* name, GLfloat x, GLfloat y, GLfloat z) {
         glUniform3f(glGetUniformLocation(ID, name), x, y, z);
     }
     void setVector3f(const GLchar* name, const glm::vec3& value) {
         glUniform3f(glGetUniformLocation(ID, name), value.x, value.y, value.z);
+    }
+    void setVec3(const std::string& name, const glm::vec3& value) const
+    {
+        glUniform3fv(glGetUniformLocation(ID, name.c_str()), 1, &value[0]);
     }
     void setMatrix4(const GLchar* name, const glm::mat4& matrix) {
         glUniformMatrix4fv(glGetUniformLocation(ID, name), 1, GL_FALSE, glm::value_ptr(matrix));
