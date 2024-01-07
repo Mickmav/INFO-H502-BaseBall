@@ -1,7 +1,4 @@
 #include<iostream>
-// TODO 
-// Framebuffer
-// Shadows
 //include glad before GLFW to avoid header conflict or define "#define GLFW_INCLUDE_NONE"
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -37,9 +34,9 @@ bool previousStateV = false;
 float speedChangeThreshold = 2.0f;
 btVector3 initialVelocity, previousVelocity;
 
-GLuint mirrorFramebuffer; // Variable globale pour le framebuffer du miroir
-GLuint mirrorColorBuffer; // Variable globale pour la texture couleur du miroir
-glm::vec3 mirrorPosition = glm::vec3(0.f, 7.f, 16.f); // Position du miroir
+
+Camera camera(glm::vec3(0.0, 5.0, 15));
+Camera camera2(glm::vec3(0.0, 5.0, -30), glm::vec3(0,1,0), 90);
 
 
 struct Particle {
@@ -55,7 +52,6 @@ btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const b
 btRigidBody* createBatter(btDynamicsWorld* dynamicsWorld);
 btRigidBody* createPlaneRigidBody(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position, const btVector3& size);
 
-void initMirrorFramebuffer();
 unsigned int loadTexture(const char* path);
 
 void processInput(GLFWwindow* window);
@@ -65,119 +61,6 @@ void updateBodyBatter(btRigidBody* bodyBatter);
 void handleThresholdForParticles(btRigidBody* bodySphere);
 
 void loadCubemapFace(const char* file, const GLenum& targetCube);
-
-
-
-
-void initMirrorFramebuffer() {
-	// Créer le framebuffer du miroir
-	glGenFramebuffers(1, &mirrorFramebuffer);
-	glBindFramebuffer(GL_FRAMEBUFFER, mirrorFramebuffer);
-
-	// Créer la texture couleur attachée au framebuffer
-	glGenTextures(1, &mirrorColorBuffer);
-	glBindTexture(GL_TEXTURE_2D, mirrorColorBuffer);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width/4, height/4, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-	// Attacher la texture couleur au framebuffer
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mirrorColorBuffer, 0);
-
-	// Créer le tampon de profondeur attaché au framebuffer
-	//GLuint mirrorDepthBuffer;
-	//glGenRenderbuffers(1, &mirrorDepthBuffer);
-	//glBindRenderbuffer(GL_RENDERBUFFER, mirrorDepthBuffer);
-	////glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
-	//glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, mirrorDepthBuffer);
-
-	// Vérifier si le framebuffer est complet
-	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-		std::cout << "Erreur : Framebuffer du miroir non complet!" << std::endl;
-	}
-
-	// Réinitialiser le framebuffer par défaut
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
-
-
-
-/*
-// Declare framebuffer ID and texture ID for secondary view
-GLuint secondaryFramebuffer;
-GLuint secondaryColorTexture;
-
-// Initialize the secondary framebuffer
-void initSecondaryFramebuffer() {
-	glGenFramebuffers(1, &secondaryFramebuffer);
-	glBindFramebuffer(GL_FRAMEBUFFER, secondaryFramebuffer);
-
-	// Create a color texture for the secondary view
-	glGenTextures(1, &secondaryColorTexture);
-	glBindTexture(GL_TEXTURE_2D, secondaryColorTexture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width / 2, height / 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-	// Attach the color texture to the framebuffer
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, secondaryColorTexture, 0);
-
-	// Check framebuffer completeness
-	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-		std::cerr << "Secondary Framebuffer is not complete!" << std::endl;
-	}
-
-	// Unbind framebuffer
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
-
-
-
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-	// Update the viewport for the main framebuffer
-	glViewport(0, 0, width, height);
-
-	// Update the viewport for the secondary framebuffer (bottom right corner)
-	glViewport(width / 2, 0, width / 2, height / 2);
-}
-
-
-GLuint framebuffer;
-
-void initFramebuffer() {
-	// Generate framebuffer
-	glGenFramebuffers(1, &framebuffer);
-	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-
-	// Create a color attachment texture
-	GLuint textureColorBuffer;
-	glGenTextures(1, &textureColorBuffer);
-	glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, screenWidth, screenHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorBuffer, 0);
-
-	// Create a renderbuffer object for depth and stencil attachment
-	GLuint rbo;
-	glGenRenderbuffers(1, &rbo);
-	glBindRenderbuffer(GL_RENDERBUFFER, rbo);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, screenWidth, screenHeight);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
-
-	// Check if framebuffer is complete
-	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-		std::cerr << "Framebuffer is not complete!" << std::endl;
-	}
-
-	// Unbind framebuffer
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
-
-*/
-
-
-
 
 
 
@@ -230,13 +113,13 @@ void APIENTRY glDebugOutput(GLenum source,
 }
 #endif
 
-Camera camera(glm::vec3(0.0, 5.0, 15));
 
 
 int main(int argc, char* argv[])
 {
-	std::cout << "Welcome to our projet baseball demo " << std::endl;
-	std::cout << " This code is an example of the bullet library \n";
+	std::cout << "Welcome to our project baseball demo " << std::endl;
+	std::cout << " This code use a example of the bullet library, and the learn opengl tutorial \n";
+	std::cout << "Have a nice game !" << std::endl;
 
 	//Create the OpenGL context 
 	if (!glfwInit()) {
@@ -253,7 +136,7 @@ int main(int argc, char* argv[])
 
 
 	//Create the window
-	GLFWwindow* window = glfwCreateWindow(width, height, "Solution 02", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(width, height, "Baseball Demo", nullptr, nullptr);
 	if (window == NULL)
 	{
 		glfwTerminate();
@@ -297,6 +180,16 @@ int main(int argc, char* argv[])
 		"v_t = tex_coord; \n"
 		"}\n";
 
+	const std::string sourceV3 = "#version 330 core\n"
+		"in vec2 position;  \n"
+		"in vec2 tex_coord;  \n"
+		"out vec2 TexCoords;  \n"
+		"void main()  \n"
+		"{  \n"
+		"TexCoords = tex_coord;  \n"
+		"gl_Position = vec4(position.x, position.y, 0.0, 1.0);  \n"
+		"}  \n";
+
 	const std::string sourceV2 = "#version 330 core\n"
 		"in vec3 position; \n"
 		"in vec2 tex_coord; \n"
@@ -325,6 +218,16 @@ int main(int argc, char* argv[])
 		"in vec2 v_t; \n"
 		"void main() { \n"
 		"FragColor = v_col*(1.0-v_t.y); \n"
+		"} \n";
+
+	const std::string sourceF3 = "#version 330 core\n"
+		"out vec4 FragColor; \n"
+		"in vec2 TexCoords; \n"
+		"uniform sampler2D screenTexture; \n"
+		"void main() \n"
+		"{ \n"
+		"vec3 col = texture(screenTexture, TexCoords).rgb; \n"
+		"FragColor = vec4(col, 1.0); \n"
 		"} \n";
 
 	const std::string sourceF2 = "#version 400 core\n"
@@ -504,13 +407,13 @@ int main(int argc, char* argv[])
 
 
 
-
 	// build and compile shaders
 	Shader shadowshader(sourceVShadowMap, sourceFShadowMap);
 	Shader simpleDepthShader(sourceVShadowMapDepth, sourceFShadowMapDepth);
 
 	Shader shader = Shader(sourceV, sourceF);
 	Shader shader2 = Shader(sourceV2, sourceF2);
+	Shader shader3 = Shader(sourceV3, sourceF3);
 	Shader cubeMapShader = Shader(sourceVCubeMap, sourceFCubeMap);
 
 	// Import objects and create VAO VBO
@@ -529,12 +432,6 @@ int main(int argc, char* argv[])
 	char pathPlane[] = PATH_TO_OBJECTS "/plane.obj";
 	Object plane(pathPlane);
 	plane.makeObject(shadowshader);
-
-	char pathPlane2[] = PATH_TO_OBJECTS "/plane.obj";
-	Object plane2(pathPlane2);
-	plane2.makeObject(shader);
-
-
 
 
 	double prev = 0;
@@ -590,13 +487,7 @@ int main(int argc, char* argv[])
 	modelGround = glm::scale(modelGround, glm::vec3(50,0.001, 50));
 	btRigidBody* bodyPlaneGround = createPlaneRigidBody(dynamicsWorld, 0, btVector3(0, 0, 0), btVector3(50, 0.001, 50));
 
-	// Mirror
-	glm::mat4 modelGround2 = glm::mat4(1.0);
-	modelGround2 = glm::translate(modelGround2, glm::vec3(0, 7, 16));
-	modelGround2 = glm::scale(modelGround2, glm::vec3(.5, 2, 2));//(-7, 15, 15));
-	btRigidBody* bodyMirror2 = createPlaneRigidBody(dynamicsWorld, 0, btVector3(0, 7, 16), btVector3(1, 1, 1));;
-
-
+	// Light Position
 	glm::vec3 light_pos(-1.0f, 15.0f, -5.0f);	// Other position : (1.0, 2.0, 1.5);
 
 	// Initialisation of matrices
@@ -609,8 +500,6 @@ int main(int argc, char* argv[])
 	float specular = 0.8;
 
 	glm::vec3 materialColour = glm::vec3(0.5f, 0.6, 0.8);
-	// test autre couleur glm::vec3 materialColour = glm::vec3(0.f, 0., 0.);
-
 
 	// load textures
 	unsigned int metalTexture = loadTexture(PATH_TO_TEXTURE"/metal.png");
@@ -727,49 +616,69 @@ int main(int argc, char* argv[])
 
 
 
+	//Quad on screen 
+	//
+	float quadVertices[] = { 
+		// positions   // texCoords
+		-1.0f,  1.0f,  0.0f, 1.0f,
+		-1.0f, -1.0f,  0.0f, 0.0f,
+		 1.0f, -1.0f,  1.0f, 0.0f,
 
-	GLfloat quadVertices[] = {
-		// Positions       // Texture Coords
-		0.5f,  0.5f, 0.0f, 1.0f,  // Top right
-	   -0.5f,  0.5f, 0.0f, 0.0f,  // Top left
-	   -0.5f, -0.5f, 0.0f, 0.0f,  // Bottom left
-		0.5f, -0.5f, 0.0f, 1.0f   // Bottom right
+		-1.0f,  1.0f,  0.0f, 1.0f,
+		 1.0f, -1.0f,  1.0f, 0.0f,
+		 1.0f,  1.0f,  1.0f, 1.0f
 	};
-	GLuint quadVAO, quadVBO;
+
+	// screen quad VAO VBO
+	unsigned int quadVAO, quadVBO;
 	glGenVertexArrays(1, &quadVAO);
 	glGenBuffers(1, &quadVBO);
 	glBindVertexArray(quadVAO);
 	glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
 	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (GLvoid*)0);
-	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (GLvoid*)(2 * sizeof(GLfloat)));
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 
 
 
-	/*
-	// Initialization
-	initFramebuffer();
-	initSecondaryFramebuffer();  // Call this once during initialization
+	// framebuffer configuration
+	unsigned int framebuffer;
+	glGenFramebuffers(1, &framebuffer);
+	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+	// create a color attachment texture
+	unsigned int textureColorbuffer;
+	glGenTextures(1, &textureColorbuffer);
+	glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorbuffer, 0);
+	// create a renderbuffer object for depth and stencil attachment (we won't be sampling these)
+	unsigned int rbo;
+	glGenRenderbuffers(1, &rbo);
+	glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height); // use a single renderbuffer object for both a depth AND stencil buffer.
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo); // now actually attach it
+	// now that we actually created the framebuffer and added all attachments we want to check if it is actually complete now
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+		std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!";
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-	// Set the callback function for window resize
-	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-	*/
 
-	// Initialiser le framebuffer du miroir
-    initMirrorFramebuffer();
+	// shader configuration
+	shader3.use();
+	shader3.setInt("screenTexture", 0);
 
-	glm::mat4 modelMirror = glm::mat4(1.0);
-	modelMirror = glm::translate(modelMirror, mirrorPosition);
-	modelMirror = glm::scale(modelMirror, glm::vec3(.5, 2, 2));//(-7, 15, 15));
 
 	glfwSwapInterval(1);
 
 	// Rendering
 
 	while (!glfwWindowShouldClose(window)) {
+
+		glViewport(0, 0, width, height);
 
 		processInput(window);
 
@@ -779,8 +688,8 @@ int main(int argc, char* argv[])
 
 		// Update the light position
 		light_pos.x = sin(glfwGetTime()) * 1.1f;
+		light_pos.y = 15.0 + cos(glfwGetTime()) * 1.0f;
 		light_pos.z = cos(glfwGetTime()) * 1.1f;
-		//light_pos.y = 5.0 + cos(glfwGetTime()) * 1.0f;
 
 		// Update physics simulation with Bullet
 		dynamicsWorld->stepSimulation(now - lastFrameTime, 10);
@@ -793,6 +702,8 @@ int main(int argc, char* argv[])
 		btTransform transform;
 		bodySphere->getMotionState()->getWorldTransform(transform);
 		transform.getOpenGLMatrix(glm::value_ptr(model));
+		inverseModel = glm::transpose(glm::inverse(model));
+
 
 		// Get the model matrice for the batter from bullet
 		btTransform transform2;
@@ -804,11 +715,125 @@ int main(int argc, char* argv[])
 		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+
+
+		// -------first render pass: mirror texture.-------
+		// bind to framebuffer and draw to color texture as we normally would from a different point of view.
+		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+		glEnable(GL_DEPTH_TEST); // enable depth testing
+		
+		// Clear the scene
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glDepthFunc(GL_LESS);
+
+		
+		// Bind the data for the particles
+		glBindVertexArray(VAO);
+
+		// Bind the data for the texture of the cubeMap
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
+		cubeMapShader.setInteger("cubemapTexture", 0);
+
+		
+		// Render the main scene 
+		
+		// render scene as normal using the generated depth/shadow map  
+		shadowshader.use();
+		glm::mat4 projection = camera2.GetProjectionMatrix();
+		glm::mat4 view = camera2.GetViewMatrix();
+		shadowshader.setMat4("projection", projection);
+		shadowshader.setMat4("view", view);
+
+
+		// Bind the data for the texture of the batter and the ground
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, metalTexture);
+
+		// Bind the data for the texture of the depth map
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, depthMap);
+
+		
+		// draw batter
+		shadowshader.setMat4("model", model2);
+		Batter.draw();
+
+		// draw ground 
+		shadowshader.setMat4("model", modelGround);
+		plane.draw();
+		
+		// View matrix
+		view = camera2.GetViewMatrix();
+		perspective = camera2.GetProjectionMatrix();
+
+
+		// Use the shader Class to send the uniform for the ball
+		shader2.use();
+		shader2.setMatrix4("M", model);
+		shader2.setMatrix4("itM", inverseModel);
+		shader2.setMatrix4("V", view);
+		shader2.setMatrix4("P", perspective);
+		shader2.setVector3f("u_view_pos", camera2.Position);
+
+		auto delta = light_pos + glm::vec3(0.0, 0.0, 2 * std::sin(now));
+
+		// Draw ball
+		sphere.draw();
+
+
+		// Use the shader Class to send the uniform for the others
+		shader.use();
+		shader.setMatrix4("V", view);
+		shader.setMatrix4("P", perspective);
+
+		// draw particles
+		for (auto& particle : ballTrailParticles) {
+
+			particle.lifetime -= deltaTime2;
+			particle.position += particle.velocity * deltaTime2; 
+			particle.velocity.y -= 9.81 * deltaTime2 / 1000;
+
+			glm::mat4 model = glm::translate(glm::mat4(1.0f), particle.position);
+			shader.setMatrix4("M", model);
+			glDrawArrays(GL_TRIANGLES, 0, 30);
+
+			if (particle.lifetime <= 0.0f) {
+				ballTrailParticles.erase(ballTrailParticles.begin(), ballTrailParticles.begin() + 1);
+			}
+		}
+		
+		// draw ground
+		shader.setMatrix4("M", modelGround);
+		plane.draw();
+
+
+		// draw cubemap
+		cubeMapShader.use();
+		cubeMapShader.setMatrix4("V", view);
+		cubeMapShader.setMatrix4("P", perspective);
+		cubeMapShader.setInteger("cubemapTexture", 0);
+
+		glDepthFunc(GL_LEQUAL);  // Set depth function to less than or equal for cubemap
+		cubeMap.draw();
+		glDepthFunc(GL_LESS);    // Reset depth function to default
+
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+
+
+		// -------second render pass: draw as normal-------
+		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+
+		// Light & Shadow computations
 		// render depth of scene to texture (from light's perspective)
 		glm::mat4 lightProjection, lightView;
 		glm::mat4 lightSpaceMatrix;
-		float near_plane = 1.0f, far_plane = 25.5f;
-		lightProjection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
+		float near_plane = 1.0f, far_plane = 55.5f;
+		lightProjection = glm::ortho(-100.0f, 100.0f, -100.0f, 100.0f, near_plane, far_plane);
 		lightView = glm::lookAt(light_pos, glm::vec3(0.0f), glm::vec3(0.0, 1.0, 0.0));
 		lightSpaceMatrix = lightProjection * lightView;
 
@@ -839,12 +864,12 @@ int main(int argc, char* argv[])
 		// reset viewport
 		glViewport(0, 0, width, height);
 
-		
+
 		// Clear the scene
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glDepthFunc(GL_LESS);
 
-		
+
 		// Bind the data for the particles
 		glBindVertexArray(VAO);
 
@@ -853,13 +878,13 @@ int main(int argc, char* argv[])
 		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
 		cubeMapShader.setInteger("cubemapTexture", 0);
 
-		
+
 		// Render the main scene 
-		
+
 		// render scene as normal using the generated depth/shadow map  
 		shadowshader.use();
-		glm::mat4 projection = camera.GetProjectionMatrix(); //glm::perspective(glm::radians(camera.Zoom), (float)width / (float)height, 0.1f, 100.0f);
-		glm::mat4 view = camera.GetViewMatrix();
+		projection = camera.GetProjectionMatrix(); //glm::perspective(glm::radians(camera.Zoom), (float)width / (float)height, 0.1f, 100.0f);
+		view = camera.GetViewMatrix();
 		shadowshader.setMat4("projection", projection);
 		shadowshader.setMat4("view", view);
 
@@ -876,7 +901,7 @@ int main(int argc, char* argv[])
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, depthMap);
 
-		
+
 		// draw batter
 		shadowshader.setMat4("model", model2);
 		Batter.draw();
@@ -884,7 +909,7 @@ int main(int argc, char* argv[])
 		// draw ground 
 		shadowshader.setMat4("model", modelGround);
 		plane.draw();
-		
+
 		// View matrix
 		view = camera.GetViewMatrix();
 		perspective = camera.GetProjectionMatrix();
@@ -897,8 +922,6 @@ int main(int argc, char* argv[])
 		shader2.setMatrix4("V", view);
 		shader2.setMatrix4("P", perspective);
 		shader2.setVector3f("u_view_pos", camera.Position);
-
-		auto delta = light_pos + glm::vec3(0.0, 0.0, 2 * std::sin(now));
 
 		// Draw ball
 		sphere.draw();
@@ -924,9 +947,9 @@ int main(int argc, char* argv[])
 				ballTrailParticles.erase(ballTrailParticles.begin(), ballTrailParticles.begin() + 1);
 			}
 		}
-		
-		// draw mirror
-		shader.setMatrix4("M", modelGround2);
+
+		// draw ground
+		shader.setMatrix4("M", modelGround);
 		plane.draw();
 
 
@@ -941,161 +964,24 @@ int main(int argc, char* argv[])
 		glDepthFunc(GL_LESS);    // Reset depth function to default
 
 
-		/*
-		// Rendering the mirror
-		// Set up the mirror view matrix to make it correspond to its point of view
-
-		shader.use();
-		//glm::vec3 mirrorPosition = glm::vec3(0.f, 7.f, 16.f); // Position du miroir
-
-		// Inside the mirror framebuffer rendering section
-		glm::mat4 mirrorModel = glm::translate(glm::mat4(1.0f), 2.0f * mirrorPosition);
-		//glm::mat4 mirrorModel = glm::translate(glm::mat4(1.0f), mirrorPosition);// *glm::scale(glm::mat4(1.0f), glm::vec3(2.0f));
-		//shader.setMatrix4("M", mirrorModel); // Use the mirror model matrix
-		//shader.setMatrix4("M", mirrorModel);
-
-		//glm::vec3 mirrorCameraPos = mirrorPosition + (camera.Position - mirrorPosition);
-		glm::vec3 mirrorCameraPos = 2.0f * mirrorPosition - camera.Position;
-		glm::vec3 mirrorTarget = glm::vec3(0.0f, 0.0f, 0.0f); // Point de cible du miroir
-		glm::vec3 mirrorUp = glm::vec3(0.0f, -1.0f, 0.0f); // Adjust the "up" vector 
-		glm::mat4 mirrorView = glm::lookAt(mirrorCameraPos, mirrorTarget, mirrorUp);
-
-		// Inside the mirror framebuffer rendering section
-		glDisable(GL_CULL_FACE); // Disable face culling to render both sides of the geometry
 
 
-		// Set up the mirror projection (adjust as needed)
-		//glm::mat4 mirrorProjection = glm::perspective(glm::radians(45.0f), 1.0f, 0.1f, 100.0f);
-		glm::mat4 mirrorProjection =  perspective;
-		//glm::mat4 mirrorProjection = glm::mat4(1.0f);
+		// now draw the quad with screen texture
+		glDisable(GL_DEPTH_TEST); // disable depth test so screen-space quad isn't discarded due to depth test.
+		glViewport(width / 2, height / 2, width / 2, height / 2);
 
 
-		// Render objects in the mirror
-		glBindFramebuffer(GL_FRAMEBUFFER, mirrorFramebuffer);
-		glViewport(width / 2, 0, width / 2, height / 2);
-
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glEnable(GL_DEPTH_TEST);
-		
-		// Draw the scene from the mirror's point of view
-		shader.use();
-		shader.setMatrix4("V", mirrorView);
-		shader.setMatrix4("P", mirrorProjection);
-
-		// Draw the batter
-		shader.setMatrix4("M", model2);
-		.draw();
-
-		// Draw the ground
-		shader.setMatrix4("M", modelGround);
-		plane.draw();
-
-		// Draw the ground mirror
-		shader.setMatrix4("M", modelGround2);
-		plane.draw();
-
-		// Draw the cubemap
-		cubeMapShader.use();
-		cubeMapShader.setMatrix4("V", mirrorView);
-		cubeMapShader.setMatrix4("P", mirrorProjection);
-
-		glDepthFunc(GL_LEQUAL);
-		//cubeMap.draw();
-		glDepthFunc(GL_LESS);
-
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glViewport(0, 0, width, height);
-		glEnable(GL_CULL_FACE);
-
-		// Draw the mirror using the mirror framebuffer texture
-		shader.use();
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, mirrorColorBuffer);
-		shader.setInteger("mirrorTexture", 1);
-
-		// Draw a quad with the mirror texture
+		shader3.use();
 		glBindVertexArray(quadVAO);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, textureColorbuffer);	// use the color attachment texture as the texture of the quad plane
 		glDrawArrays(GL_TRIANGLES, 0, 6);
-		glBindVertexArray(0);
 
-		// Reset to the default framebuffer
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-		// Draw the rest of the scene
-		glViewport(0, 0, width, height);
-
-		// Draw the batter
-		shader.setMatrix4("V", view);
-		shader.setMatrix4("P", perspective);
-		shader.setMatrix4("M", model2);
-		Batter.draw();
-
-		// Draw the ground
-		shader.setMatrix4("M", modelGround);
-		plane.draw();
-
-		// Draw the ground mirror
-		shader.setMatrix4("M", modelGround2);
-		plane.draw();
-
-		// Draw the cubemap
-		cubeMapShader.use();
-		cubeMapShader.setMatrix4("V", view);
-		cubeMapShader.setMatrix4("P", perspective);
-
-		glDepthFunc(GL_LEQUAL);
-		//cubeMap.draw();
-		glDepthFunc(GL_LESS);
-
-
-
-		//// Render mirror-related objects here
-
-
-		//// Reset framebuffer
-		//glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		//glViewport(width / 2, 0, width / 2, height / 2);
-
-		////glClearColor(1.f, 1.f, 1.f, 1.f);
-		////glClear(GL_COLOR_BUFFER_BIT);
-		//shader.use(); // Aply effect
-
-		//glBindVertexArray(quadVAO);
-		//glDisable(GL_DEPTH_TEST);
-		//glBindTexture(GL_TEXTURE_2D, mirrorFramebuffer);
-		//glDrawArrays(GL_TRIANGLES, 0, 6);
-		//glBindVertexArray(0);
-
-		//glViewport(0, 0, width, height);
-		*/
+		
 		fps(now);
 		lastFrameTime = now;
 		glfwSwapBuffers(window);
 	}
-	/*
-	// Render to the secondary framebuffer
-	glBindFramebuffer(GL_FRAMEBUFFER, secondaryFramebuffer);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glViewport(width / 2, 0, width / 2, height / 2);
-
-	// Set up the secondary camera (same position or orientation as the main camera)
-	view = camera.GetViewMatrix();  // Use the same camera
-
-	// Enable a shader for the black and white effect
-	shader.use();
-
-	// Pass necessary uniforms to the shader, if required
-
-	// Render the scene
-
-	// Switch back to the main framebuffer
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glViewport(0, 0, width, height);
-	*/
-
 
 	//5. Clean up 
 	//remove the rigidbodies from the dynamics world and delete them
@@ -1128,9 +1014,6 @@ int main(int argc, char* argv[])
 	//next line is optional: it will be cleared by the destructor when the array goes out of scope
 	collisionShapes.clear();
 
-	// Free the memory of the buffer
-	glDeleteBuffers(1, &mirrorColorBuffer);
-
 	//clean up ressource
 	glfwDestroyWindow(window);
 	glfwTerminate();
@@ -1144,25 +1027,47 @@ void processInput(GLFWwindow* window) {
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
 
-	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
 		camera.ProcessKeyboardMovement(LEFT, 0.1);
-	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+		camera2.ProcessKeyboardMovement(LEFT, 0.1);
+	}
+
+	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
 		camera.ProcessKeyboardMovement(RIGHT, 0.1);
+		camera2.ProcessKeyboardMovement(RIGHT, 0.1);
+	}
 
-	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
 		camera.ProcessKeyboardMovement(FORWARD, 0.1);
-	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+		camera2.ProcessKeyboardMovement(FORWARD, 0.1);
+	}
+
+	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
 		camera.ProcessKeyboardMovement(BACKWARD, 0.1);
+		camera2.ProcessKeyboardMovement(BACKWARD, 0.1);
+	}
 
-	if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+	if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
 		camera.ProcessKeyboardRotation(1, 0.0, 1);
-	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-		camera.ProcessKeyboardRotation(-1, 0.0, 1);
+		camera2.ProcessKeyboardRotation(1, 0.0, 1);
+	}
 
-	if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
+		camera.ProcessKeyboardRotation(-1, 0.0, 1);
+		camera2.ProcessKeyboardRotation(-1, 0.0, 1);
+	}
+
+
+	if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
 		camera.ProcessKeyboardRotation(0.0, 1.0, 1);
-	if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+		camera2.ProcessKeyboardRotation(0.0, 1.0, 1);
+	}
+
+	if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
 		camera.ProcessKeyboardRotation(0.0, -1.0, 1);
+		camera2.ProcessKeyboardRotation(0.0, -1.0, 1);
+	}
+
 
 
 	if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS)
@@ -1191,9 +1096,7 @@ void loadCubemapFace(const char* path, const GLenum& targetFace)
 	unsigned char* data = stbi_load(path, &imWidth, &imHeight, &imNrChannels, 0);
 	if (data)
 	{
-
 		glTexImage2D(targetFace, 0, GL_RGB, imWidth, imHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-		//glGenerateMipmap(targetFace);
 	}
 	else {
 		std::cout << "Failed to Load texture" << std::endl;
@@ -1209,8 +1112,6 @@ btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const b
 
 	btTransform startTransform;
 	startTransform.setIdentity();
-
-	// Set the position
 	startTransform.setOrigin(position);
 
 	btVector3 localInertia(1, 1, 1);
@@ -1229,13 +1130,10 @@ btRigidBody* createSphere(btDynamicsWorld* dynamicsWorld, btScalar mass, const b
 }
 
 
-
-// Function to create a static rigid body for the mirror
 btRigidBody* createPlaneRigidBody(btDynamicsWorld* dynamicsWorld, btScalar mass, const btVector3& position, const btVector3& size) {
 	btCollisionShape* colShape = new btBoxShape(size);
 	collisionShapes.push_back(colShape);
 	
-	// Calculate the transformation for the mirror
 	btTransform mirrorTransform;
 	mirrorTransform.setIdentity();
 	mirrorTransform.setOrigin(position);
@@ -1243,7 +1141,6 @@ btRigidBody* createPlaneRigidBody(btDynamicsWorld* dynamicsWorld, btScalar mass,
 	btVector3 localInertia(0, 0, 0);
 	if (mass != 0.f)
 		colShape->calculateLocalInertia(mass, localInertia);
-
 
 	btDefaultMotionState* myMotionState = new btDefaultMotionState(mirrorTransform);
 	btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
@@ -1337,7 +1234,6 @@ void handleThresholdForParticles(btRigidBody* bodySphere) {
 	float speedChange = (currentVelocity - previousVelocity).length();
 
 	// Check if speed is above the threshold
-
 	if (speedChange > speedChangeThreshold) {
 		ballExceededThreshold = true;
 	}

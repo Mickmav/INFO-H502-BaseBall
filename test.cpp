@@ -40,7 +40,7 @@ bool transitionBall = false;
 bool previousStateV = false;
 btAlignedObjectArray<btCollisionShape*> collisionShapes;
 
-/*
+
 // Declare framebuffer ID and texture ID for secondary view
 GLuint secondaryFramebuffer;
 GLuint secondaryColorTexture;
@@ -112,7 +112,7 @@ void initFramebuffer() {
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-*/
+
 
 
 struct Particle {

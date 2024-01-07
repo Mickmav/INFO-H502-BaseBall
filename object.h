@@ -15,15 +15,6 @@
 #include<glm/gtc/matrix_transform.hpp>
 
 
-/*Principe :
-* On donne le path du fichier -> on lit le fichier
-* 2 �tape 
-* 1)load le model -> lit le fichier ligne par ligne
-* liste de position de normal de texture
-* suivant la premi�re lettre : lit les valeur suivant et les met dans un vec puis push dans la bonne liste
-* en gros sotck les data dans une frome de tableau
-*/
-
 struct Vertex {
 	glm::vec3 Position;
 	glm::vec2 Texture;
@@ -49,14 +40,12 @@ public:
 	Object(const char* path) {
 
 		std::ifstream infile(path);
-		//TODO Error management
 		std::string line;
 		while (std::getline(infile, line))
 		{
 			std::istringstream iss(line);
 			std::string indice;
 			iss >> indice;
-			//std::cout << "indice : " << indice << std::endl;
 			if (indice == "v") {
 				float x, y, z;
 				iss >> x >> y >> z;
@@ -131,9 +120,6 @@ public:
 				vertices.push_back(v3);
 			}
 		}
-		//std::cout << positions.size() << std::endl;
-		//std::cout << normals.size() << std::endl;
-		//std::cout << textures.size() << std::endl;
 		std::cout << "Load model with " << vertices.size() << " vertices" << std::endl;
 
 		infile.close();
