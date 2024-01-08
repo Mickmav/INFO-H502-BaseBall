@@ -20,5 +20,7 @@ After building the CMakeList.txt, run the infoh502-cpp_main.exe.
 
 ## Play the game
 To move the camera use "Z","Q","S","D" and "UP","DOWN,"RIGHT","LEFT" keyboard buttons.
+
 To move the baseball bat use "B","N"  keyboard buttons.
+
 To respawn the bat use the "V" keyboard buttons.
