@@ -12,7 +12,7 @@ Different features were implement for this project:
 4. Collision detection and physical engine
 5. Frame buffer usage
 
-The simulation contains a baseball bat that can be rotated by the user (with B and N), a ball that can be re-spawned at will (with V), a ground, light and a cube map environment.
+The simulation contains a baseball bat that can be rotated by the user, a ball that can be re-spawned at will, a ground, light and a cube map environment.
 
 
 ## Launch
